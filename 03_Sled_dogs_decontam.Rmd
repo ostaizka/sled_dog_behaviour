@@ -1,0 +1,62 @@
+---
+title: "Decontam"
+output: html_document
+date: "2024-04-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cars}
+library(decontam)
+sample_data(ps1_all)$is.neg <- sample_data(ps1_all)$Sample_type == "Control"
+contamdf.prev <- isContaminant(ps1_all, method="prevalence", neg="is.neg")
+table(contamdf.prev$contaminant)
+head(which(contamdf.prev$contaminant))
+# getting IDs of those identified as likely contaminants
+contam_asvs <- row.names(contamdf.prev[contamdf.prev$contaminant == TRUE, ])
+# We can see this by looking at their taxonomic designations in our tax table:
+contaminants <- ps1_all@tax_table[row.names(ps1_all@tax_table) %in% contam_asvs, ]
+asv.cont <- rownames(contaminants)
+#How many ASV contaminants in each sample?
+samples <- colnames(ps1_all@otu_table)
+contaminants <- c()
+for (sample in samples){
+  print(sample)
+  one.column <- ps1_all@otu_table[,sample]
+  if (colSums(one.column) > 0){
+    s.depth <- colSums(one.column)
+    asv.incolumn <- one.column[one.column > 0]
+    total.asvs <- nrow(asv.incolumn)
+    if (length(intersect(rownames(asv.incolumn), contam_asvs)) > 0){
+      asv.contam <- asv.incolumn[rownames(asv.incolumn) %in%  contam_asvs,]
+      contaminant.reads <- colSums(asv.contam)
+      contaminant.asvs <- nrow(asv.contam)
+      contaminants <- rbind(contaminants,c(s.depth,contaminant.reads,total.asvs,contaminant.asvs))
+    }else{
+      contaminants <- rbind(contaminants,c(s.depth,0,total.asvs,0))  
+    }
+  }else{
+    contaminants <- rbind(contaminants,c(0,0))
+  }
+}
+
+row.names(contaminants) <- samples
+colnames(contaminants) <- c("total.reads", "contaminant.reads", "total.ASVs","contaminant.ASVs")
+as.data.frame(contaminants)
+detach("package:phangorn", unload=TRUE)
+#detach("package:microbiome", unload=TRUE)
+contaminants <- transform(contaminants, cont.read.percetage = contaminant.reads/total.reads*100)
+write.table(contaminants,paste(projectdirR,"Tables/contaminants_Phylum.tsv",sep=""), quote = FALSE, sep = ",")
+```
+
+# Making new phyloseq object without ASV contaminats
+```{r}
+physeq <- subset_samples(ps1_all, Sample_type == "Sample")
+physeq <- prune_taxa(taxa_sums(physeq)>0, physeq)
+goodTaxa <- setdiff(taxa_names(physeq), contam_asvs)
+physeq_no_contam <- prune_taxa(goodTaxa, physeq)
+saveRDS(physeq_no_contam,"/DADA2/Seq1/physeq_Phylum_contaminants.RData")
+```
+

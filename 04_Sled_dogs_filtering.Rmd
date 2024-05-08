@@ -1,0 +1,79 @@
+---
+title: "Sled_dogs_filtering"
+output: html_document
+date: "2024-04-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Filtering
+```{r}
+#check the sequencing depth of lead_dogs
+all_lead_check <- subset_samples(physeq_no_contam, Working_status == "Lead")
+all_lead_check@sam_data
+colSums(all_lead_check@otu_table)
+```
+
+```{r}
+library(hilldiv)
+count.all <- data.frame(physeq_no_contam@otu_table) 
+count.all_filtdepth <- depth_filt(count.all,8000)
+count.all_copyfilt <- copy_filt(count.all_filtdepth,0.0001)
+count_filtered <- otu_table(count.all_copyfilt, taxa_are_rows=T)
+otu_table(physeq_no_contam) <- count_filtered
+physeq_filtered <- prune_taxa(taxa_sums(physeq_no_contam)>0, physeq_no_contam)
+physeq_filtered_keep <- subset_samples(physeq_filtered, Keep == "Keep")
+physeq_filtered_keep <- prune_taxa(taxa_sums(physeq_filtered_keep)>0, physeq_filtered_keep)
+data.frame(physeq_filtered_keep@sam_data) %>%
+  filter(Working_status=="Lead")#check that all leaders are there
+```
+
+# Taxonomy filtering: Remove ASVs identified as Eukaryota or Archaea, and Bacteria lacking Phylum info in the TAXONOMY file
+
+```{r}
+physeq_bacteria <- subset_taxa(physeq_filtered_keep, Kingdom == "Bacteria")
+physeq_others <- subset_taxa(physeq_filtered_keep, Kingdom != "Bacteria")#35 Eukaryota
+physeq_phylum <- subset_taxa(physeq_bacteria, !is.na(Phylum))
+physeq_phylumNA <- subset_taxa(physeq_bacteria, is.na(Phylum))#6
+physeq_class <- subset_taxa(physeq_phylum, !is.na(Class))
+physeq_classNA <- subset_taxa(physeq_phylum, is.na(Class))#4
+```
+
+# Removing chloroplast and mitocondria
+
+```{r}
+taxonomy <- physeq_phylum@tax_table
+is.mitochondria <- physeq_phylum@tax_table[,"Family"] %in% "Mitochondria"
+taxonomy <- taxonomy[!is.mitochondria,]
+is.chloroplast <- taxonomy[,"Order"] %in% "Chloroplast"
+taxonomy <- taxonomy[!is.chloroplast,]
+taxonomy.m <- as.matrix(taxonomy)
+tax_table(physeq_phylum) <- taxonomy.m
+physeq_phylum_filtered <- prune_taxa(taxa_sums(physeq_phylum)>0, physeq_phylum)
+tree <- force.ultrametric(tree, method = "extend")
+
+phy_tree(physeq_phylum_filtered) <- tree
+
+physeq_phylum_clean=physeq_phylum_filtered
+
+```
+
+# Save
+```{r}
+asv.all.final <- data.frame(physeq_phylum@otu_table)
+write.table(asv.all.final,paste(projectdir,"Results/Tables/asv.all.phylum.tsv",sep=""))
+
+taxonomy.all.final <- data.frame(physeq_phylum@tax_table)
+write.table(taxonomy.all.final,paste(projectdir,"Results/Tables/taxonomy.all.phylum.tsv",sep=""))
+
+sample.all.final <- data.frame(physeq_phylum@sam_data)
+write.table(sample.all.final,paste(projectdir,"Results/Tables/sample.all.phylum.tsv",sep=""))
+
+saveRDS(physeq_phylum_filtered,paste(projectdirSeq, "physeq_phylum_filtered_tree.RData",sep=""))
+physeq_phylum_filtered <- readRDS(paste(projectdirSeq, "physeq_phylum_filtered.RData",sep=""))
+
+saveRDS(physeq_class,"/Users/ostaizkaaizpurua/Projects/GreenDogs/DADA2/Seq1/physeq_Class.RData")
+```
+
