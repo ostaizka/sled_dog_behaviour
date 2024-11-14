@@ -34,6 +34,7 @@ library(sjPlot)
 library(nlme)
 library(matrixStats)
 library(microbiomeutilities)
+library(emmeans)
 ```
 
 # Saliva samples
@@ -43,8 +44,6 @@ physeq_phylum_clean <- prune_taxa(taxa_sums(physeq_phylum_clean)>0, physeq_phylu
 physeq_saliva <- subset_samples(physeq_phylum_clean, Extraction == "Saliva")
 physeq_saliva <- subset_samples(physeq_saliva, Working_status %in% c("Follower", "Lead"))
 physeq_saliva <- prune_taxa(taxa_sums(physeq_saliva)>0, physeq_saliva)
-#physeq_FL <- subset_samples(physeq_phylum_clean, Working_status %in% c("Follower", "Lead"))
-
 ```
 
 ```{r saliva}
@@ -60,7 +59,6 @@ saliva_table <- data.frame(physeq_saliva@otu_table)
 identical(sort(colnames(saliva_table)),sort(as.character(saliva_metatable[,1])))
 match_data(saliva_table,tree_saliva)
 saliva_table <- data.frame(physeq_saliva@otu_table)%>% rownames_to_column(., "asv")
-
 
 saliva_metatable$Pack=factor(saliva_metatable$Pack)
 saliva_metatable$Group <- paste("Group", saliva_metatable$Pack, sep = "_")
@@ -132,9 +130,7 @@ asv_table %>%
   left_join(., metadata_row, by = join_by(sample == sample)) %>% #append sample metadata
   ggplot(., aes(x=sample,y=count, fill=Phylum, group=Phylum)) + #grouping enables keeping the same sorting of taxonomic units
     geom_bar(stat="identity", colour="white", linewidth=0.1) +
-#    scale_fill_manual(values=phylum_colors) +
   facet_grid(.~Working_status,  scales="free_x")+
-#    facet_nested(.~Individual+Sample_type,  scales="free_x") +
 theme(axis.text.x=element_blank(),
           axis.title.x = element_blank(),
           axis.ticks.x=element_blank(),
@@ -159,19 +155,17 @@ asv_table_top_phylum<- data.frame(top_phylum@otu_table)%>% rownames_to_column(.,
 taxonomy_table_top_phylum <- data.frame(top_phylum@tax_table)%>% rownames_to_column(., "asv")
 
 asv_table_top_phylum %>%
-  mutate_at(vars(-asv),~./sum(.)) %>% #apply TSS normalisation
-  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% #reduce to minimum number of columns
-  left_join(., taxonomy_table_top_phylum, by = join_by(asv == asv)) %>% #append genome metadata
-  left_join(., metadata_row_top_phylum, by = join_by(sample == sample)) %>% #append sample metadata
-  ggplot(., aes(x=sample,y=count, fill=Phylum, group=Phylum)) + #grouping enables keeping the same sorting of taxonomic units
-    geom_bar(stat="identity", colour="white", linewidth=0.1) +
-#    scale_fill_manual(values=phylum_colors) +
+  mutate_at(vars(-asv),~./sum(.)) %>% 
+  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% 
+  left_join(., taxonomy_table_top_phylum, by = join_by(asv == asv)) %>% 
+  left_join(., metadata_row_top_phylum, by = join_by(sample == sample)) %>% 
+  ggplot(., aes(x=sample,y=count, fill=Phylum, group=Phylum)) +
+  geom_bar(stat="identity", colour="white", linewidth=0.1) +
   facet_grid(.~Location,  scales="free_x")+
-#    facet_nested(.~Individual+Sample_type,  scales="free_x") +
-theme(axis.text.x=element_blank(),
-          axis.title.x = element_blank(),
-          axis.ticks.x=element_blank(),
-      axis.title = element_text(size = 10, face = "bold"),
+  theme(axis.text.x=element_blank(),
+        axis.title.x = element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title = element_text(size = 10, face = "bold"),
     panel.background = element_blank(),
     # panel.border = element_blank(),
     panel.grid.major = element_blank(),
@@ -235,6 +229,7 @@ percentage.saliva.genus.sort <- summary.genus.saliva[order(-summary.genus.saliva
 percentage.saliva.genus.sort[1-10,]
 ```
 
+# Alpha diversity
 ```{r alpha_div, comment="", echo=FALSE, message=FALSE, warning=FALSE}
 #Calculate Hill numbers
 richness <- saliva_table %>% 
@@ -266,7 +261,6 @@ phylogenetic <- saliva_table %>%
 alpha_div <- richness %>%
       full_join(neutral,by=join_by(sample==sample)) %>%
       full_join(phylogenetic,by=join_by(sample==sample)) %>%
-#      full_join(functional,by=join_by(sample==sample)) %>%
       left_join(., saliva_metatable, by = join_by(sample == sample))
 
 
@@ -286,7 +280,6 @@ phylogenetic_mean <- alpha_div %>%
 cbind(richness_mean, neutral_mean[, 3:4], phylogenetic_mean[, 3:4])
 
 ```
-
 
 ## Plot diversities
 ```{r alpha_div_plot1, comment="", echo=FALSE, message=FALSE, warning=FALSE}
@@ -329,10 +322,8 @@ highlight_df <- alpha_div %>%
              aes(x=Pack,y=richness), 
              color='red',
              size=2, show.legend = FALSE)+
-#  geom_violin(alpha = 0.2, width = 0.3, show.legend = FALSE) +
   scale_color_manual(values = alpha_colors[c(1:group_n)]) +
   scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-#  stat_compare_means(show.legend = FALSE) +
   theme(axis.text.x = element_text(vjust = 0.5, size = 10),
         axis.text.y = element_text(size = 10),
         axis.title = element_text(size = 14, face = "bold"),
@@ -346,7 +337,18 @@ highlight_df <- alpha_div %>%
   guides(colour = guide_legend(override.aes = list(size = 6))) +
   labs(x = "Pack", y = "Richness")
 
-pdf("figures/neutral_saliva_bigger.pdf",width=14, height=9)
+
+```
+
+
+```{r alpha_div_neutral, comment="", echo=FALSE, message=FALSE, warning=FALSE}
+alpha_colors <- c("#e5bd5b", "#6b7398", "#76b183", "#d57d2c", "#2a2d26", "#f9d4cc", "#3c634e", "#ea68c3")
+group_n <- alpha_div %>%
+  select(Pack) %>%
+  pull() %>%
+  unique() %>%
+  length()
+#pdf("figures/neutral_saliva_bigger.pdf",width=14, height=9)
  alpha_div %>%
   ggplot(aes(x = Group, y = neutral, group = Group, color = Group, fill = Group)) +
    geom_boxplot(alpha = 0.2, outlier.shape = NA, show.legend = FALSE)+
@@ -355,10 +357,8 @@ pdf("figures/neutral_saliva_bigger.pdf",width=14, height=9)
              aes(x=Group,y=neutral), 
              color='red',
              size=4, show.legend = FALSE)+
-#  geom_violin(alpha = 0.2, width = 0.3, show.legend = FALSE) +
   scale_color_manual(values = alpha_colors[c(1:group_n)]) +
   scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-#  stat_compare_means(show.legend = FALSE) +
   theme(axis.text.x = element_text(vjust = 0.5, size = 14),
         axis.text.y = element_text(size = 14),
         axis.title = element_text(size = 16, face = "bold"),
@@ -371,13 +371,10 @@ pdf("figures/neutral_saliva_bigger.pdf",width=14, height=9)
         axis.line = element_line(size = 0.5, linetype = "solid", colour = "black")) +
   guides(colour = guide_legend(override.aes = list(size = 6))) +
   labs(x = "Sled dog group", y = "Neutral alpha diversity", title="Saliva samples")
- dev.off()
+# dev.off()
 
 ```
-
-
-
-```{r}
+```{r alpha_div_phylo, comment="", echo=FALSE, message=FALSE, warning=FALSE}
 alpha_colors <- c("#e5bd5b", "#6b7398", "#76b183", "#d57d2c", "#2a2d26", "#f9d4cc", "#3c634e", "#ea68c3")
 group_n <- alpha_div %>%
   select(Group) %>%
@@ -388,17 +385,15 @@ group_n <- alpha_div %>%
 highlight_df <- alpha_div %>% 
              filter(Working_status=="Lead")
  alpha_div %>%
-  ggplot(aes(x = Group, y = richness, group = Group, color = Group, fill = Group)) +
+  ggplot(aes(x = Group, y = phylogenetic, group = Group, color = Group, fill = Group)) +
    geom_boxplot(alpha = 0.2, outlier.shape = NA, show.legend = FALSE)+
    geom_jitter(width = 0.2, size = 1.5, show.legend = FALSE) + 
   geom_point(data=highlight_df, 
-             aes(x=Group,y=richness), 
+             aes(x=Group,y=phylogenetic), 
              color='red',
              size=2, show.legend = FALSE)+
-#  geom_violin(alpha = 0.2, width = 0.3, show.legend = FALSE) +
   scale_color_manual(values = alpha_colors[c(1:group_n)]) +
   scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-#  stat_compare_means(show.legend = FALSE) +
   theme(axis.text.x = element_text(vjust = 0.5, size = 10),
         axis.text.y = element_text(size = 10),
         axis.title = element_text(size = 14, face = "bold"),
@@ -412,40 +407,28 @@ highlight_df <- alpha_div %>%
   guides(colour = guide_legend(override.aes = list(size = 6))) +
   labs(x = "Group", y = "Richness")
  
-pdf("figures/neutral_faecal_bigger.pdf",width=14, height=9)
- alpha_div %>%
-  ggplot(aes(x = Group, y = neutral, group = Group, color = Group, fill = Group)) +
-   geom_boxplot(alpha = 0.2, outlier.shape = NA, show.legend = FALSE)+
-   geom_jitter(width = 0.2, size = 2.5, show.legend = FALSE) + 
-  geom_point(data=highlight_df, 
-             aes(x=Group,y=neutral), 
-             color='red',
-             size=4, show.legend = FALSE)+
-#  geom_violin(alpha = 0.2, width = 0.3, show.legend = FALSE) +
-  scale_color_manual(values = alpha_colors[c(1:group_n)]) +
-  scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-#  stat_compare_means(show.legend = FALSE) +
-  theme(axis.text.x = element_text(vjust = 0.5, size = 14),
-        axis.text.y = element_text(size = 14),
-        axis.title = element_text(size = 16, face = "bold"),
-        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
-        axis.title.x = element_text(margin = margin(t = 20, r = 0, b = 0, l = 0)),
-        panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.line = element_line(size = 0.5, linetype = "solid", colour = "black")) +
-  guides(colour = guide_legend(override.aes = list(size = 6))) +
-  labs(x = "Sled dog group", y = "Neutral alpha diversity")
- dev.off()
 ```
 
-```{r}
+```{r model_neutral, comment="", echo=FALSE, message=FALSE, warning=FALSE}
 Model_neutral <- lm(formula = neutral ~ Working_status+Group, data = alpha_div)
 summary(Model_neutral)
 anova(Model_neutral)
 emmeans(Model_neutral, pairwise ~ Group)
-```
 
+Model_neutral1 <- lme(fixed = neutral ~ Working_status, data = alpha_div,
+               random = ~ 1 | Pack)
+summary(Model_neutral1)
+```
+```{r model_phylo, comment="", echo=FALSE, message=FALSE, warning=FALSE}
+Model_phylogenetic <- lm(formula = phylogenetic ~ Working_status+Group, data = alpha_div)
+summary(Model_phylogenetic)
+anova(Model_phylogenetic)
+emmeans(Model_phylogenetic, pairwise ~ Group)
+
+Model_phylogenetic1 <- lme(fixed = phylogenetic ~ Working_status, data = alpha_div,
+               random = ~ 1 | Pack)
+summary(Model_phylogenetic1)
+```
 # Beta diversity
 ```{r beta_div, comment="", echo=FALSE, message=FALSE, warning=FALSE, results='hide', eval=FALSE}
 beta_q0 <- saliva_table %>%
@@ -460,14 +443,18 @@ beta_q1p <- saliva_table%>%
   column_to_rownames(., "asv")%>%
   hillpair(., q = 1, tree = tree_faecal)
 
-#save(beta_q0,beta_q1n,beta_q1p, file = "resources/beta_div_saliva_filter.Rdata")
+save(beta_q0,beta_q1n,beta_q1p, file = "resources/beta_div_saliva_filter.Rdata")
 ```
-```{r}
-load("resources/beta_div_saliva.Rdata")
+
+```{r load_beta, comment="", echo=FALSE, message=FALSE, warning=FALSE}
 load("resources/beta_div_saliva_filter.Rdata")
 ```
 
 ## Neutral beta diversity
+```{r}
+set.seed(1411)
+```
+
 ```{r betan, comment="", echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
 
 beta_metric <- beta_q1n$S
@@ -481,6 +468,7 @@ beta_q1n_nmds <- beta_metric %>%
 group_n <- length(unique(beta_q1n_nmds$Group))
 beta_colors <- c("#e5bd5b", "#6b7398", "#76b183", "#d57d2c", "#2a2d26", "#f9d4cc", "#3c634e", "#ea68c3")
 ```
+
 ```{r beta_div_neutral, comment="", echo=FALSE, message=FALSE, warning=FALSE}
 q1n_nmds <- beta_q1n_nmds %>%
   group_by(Group) %>%
@@ -493,7 +481,6 @@ ggplot(q1n_nmds, aes(x = NMDS1, y = NMDS2, color = Group)) +
   scale_color_manual(values = beta_colors[c(1:group_n)]) +
   scale_shape_manual(values = 1:10) +
   geom_point(size = 2) +
-  #   stat_ellipse(aes(color = beta_q1n_nmds$Groups))+
   geom_segment(aes(x = x_cen, y = y_cen, xend = NMDS1, yend = NMDS2), alpha = 0.9, show.legend = FALSE) +
   theme_classic() +
   theme(
@@ -508,8 +495,8 @@ ggplot(q1n_nmds, aes(x = NMDS1, y = NMDS2, color = Group)) +
     legend.position = "right", legend.box = "vertical"
   ) + labs(color='Role on the group')
 #dev.off()
-#+ geom_text(aes(label = Sample), size=8)
 ```
+
 ***Homogeneity of variance***
 
 ```{r permu1, comment="", echo=FALSE, message=FALSE, warning=FALSE}
@@ -531,234 +518,3 @@ adonis2(beta_metric ~ Working_status, data = metarow[labels(beta_metric), ], per
   knitr::kable(., digits = c(0,4,4,4,4,4))
 ```
 
-### Diversity Analysis
-
-#### Species profile
-```{r species_profile_S}
-species_profile <- div_profile(saliva.table, qvalues=seq(from = 0, to = 3, by = (0.2)),hierarchy=hierarchy.saliva[,c(1,4)])
-hilldiv::div_profile_plot(species_profile)
-```
-
-#### Apha diversities
-##### Richness
-```{r rich_S}
-divq0 <- div_test(saliva.table,qvalue=0,hierarchy=hierarchy.saliva[,c(1,4)])
-divq0_value <- divq0$data
-q0 <- merge(divq0_value, hierarchy.saliva, by="Sample")
-means_q0_byWorking_status <- q0 %>% 
-  group_by(Working_status) %>% 
-  summarise_at(.vars = names(.)[3],.funs = c(mean="mean", sd="sd"))
-as.data.frame(means_q0_byWorking_status)
-```
-
-###### Negative Binomial
-```{r NB_S}
-Modelq0GLMMNB <- glmer.nb(Value ~ Group + (1|Pack), data = q0)
-summary(Modelq0GLMMNB)
-r.squaredGLMM(Modelq0GLMMNB)
-```
-###### Plot the model
-```{r plotq0_S}
-plot_model(Modelq0GLMMNB,type="pred",terms = "Group", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-```
-#### Highlight the leaders
-```{r highlight_Leader_F, echo=FALSE, fig.cap="Diversity at q=0. Note: leaders in red"}
-highlight_df <- q0 %>% 
-             filter(Working_status=="Lead")
-q0 %>% 
-  ggplot(aes(x=Pack,y=Value)) +
-  geom_boxplot() + 
-  geom_point(alpha=0.3) +
-  geom_point(data=highlight_df, 
-             aes(x=Pack,y=Value), 
-             color='red',
-             size=2)
-```
-##### Neutral
-
-```{r neutral_S}
-divq1 <- div_test(saliva.table,qvalue=1,hierarchy=hierarchy.saliva[,c(1,4)])
-divq1_value <- divq1$data
-q1 <- merge(divq1_value, hierarchy.saliva, by="Sample")
-means_q1_byWorking_statusPack <- q1 %>% 
-  group_by(Pack,Working_status) %>% 
-  summarise_at(.vars = names(.)[3],.funs = c(Maximum="max", Minimum="min",mean="mean", sd="sd"))
-means_q1_byWorking_status <- q1 %>% 
-  group_by(Working_status) %>% 
-  summarise_at(.vars = names(.)[3],.funs = c(mean="mean", sd="sd"))
-as.data.frame(means_q1_byWorking_statusPack)
-as.data.frame(means_q1_byWorking_status)
-```
-
-###### Negative Binomial
-```{r lme_S}
-Modelq1 <- lme(fixed = Value ~ Group, data = q1,
-               random = ~ 1 | Pack)
-summary(Modelq1)
-```
-###### Plot the model
-```{r plotq1_S}
-plot_model(Modelq1,type="pred",terms = "Group", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-```
-#### Highlight the leader
-```{r highlight_Leader_q1_F, echo=FALSE, fig.cap="Diversity at q=1. Note: leaders in red"}
-highlight_df <- q1 %>% 
-             filter(Working_status=="Lead")
-q1 %>% 
-  ggplot(aes(x=Pack,y=Value)) +
-  geom_boxplot() + 
-  geom_point(alpha=0.3) +
-  geom_point(data=highlight_df, 
-             aes(x=Pack,y=Value), 
-             color='red',
-             size=2)
-```
-##### Phylogenetic
-
-```{r phylo_S}
-divq1P <- div_test(saliva.table,qvalue=1,hierarchy=hierarchy.saliva[,c(1,4)],tree=tree_saliva)
-```
-
-```{r phylo_model_S}
-divq1P_value <- divq1P$data
-q1P <- merge(divq1P_value, hierarchy.saliva, by="Sample")
-means_q1P_byWorking_statusPack <- q1P %>% 
-  group_by(Pack,Working_status) %>% 
-  summarise_at(.vars = names(.)[3],.funs = c(Maximum="max", Minimum="min",mean="mean", sd="sd"))
-means_q1P_byWorking_status <- q1P %>% 
-  group_by(Working_status) %>% 
-  summarise_at(.vars = names(.)[3],.funs = c(mean="mean", sd="sd"))
-as.data.frame(means_q1P_byWorking_statusPack)
-as.data.frame(means_q1P_byWorking_status)
-Modelq1P <- lme(fixed = Value ~ Group, data = q1P,
-                random = ~ 1 | Pack)
-summary(Modelq1P)
-r.squaredGLMM(Modelq1P)
-```
-###### Plot the model
-```{r plotq1P_S}
-plot_model(Modelq1P,type="pred",terms = "Group", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-```
-
-#### Composition
-
-##### Distances
-
-```{r read_pair_dis_S}
-pairdis.q0 <- readRDS(paste(projectdirR,"Data/pairdis.q0.",codeSaliva,".RData",sep=""))
-pairdis.q1 <- readRDS(paste(projectdirR,"Data/pairdis.q1.",codeSaliva,".RData",sep=""))
-pairdis.q0P <- readRDS(paste(projectdirR,"Data/pairdis.q0P.",codeSaliva,".RData",sep=""))
-pairdis.q1P <- readRDS(paste(projectdirR,"Data/pairdis.q1P.",codeSaliva,".RData",sep=""))
-```
-
-```{r pair_dis_S}
-#pairdis.q0 <- pair_dis(saliva.table,qvalue=0,hierarchy=hierarchy.saliva[,c(1,4)])
-#saveRDS(pairdis.q0,paste(projectdirR,"Data/pairdis.q0.",codeSaliva,".RData",sep=""))
-#pairdis.q1 <- pair_dis(saliva.table,qvalue=1,hierarchy=hierarchy.saliva[,c(1,4)])
-#saveRDS(pairdis.q1,paste(projectdirR,"Data/pairdis.q1.",codeSaliva,".RData",sep=""))
-#pairdis.q0P <- pair_dis(saliva.table,qvalue=0,hierarchy=hierarchy.saliva[,c(1,4)],tree=tree_saliva)
-#saveRDS(pairdis.q0P,paste(projectdirR,"Data/pairdis.q0P.",codeSaliva,".RData",sep=""))
-#pairdis.q1P <- pair_dis(saliva.table,qvalue=1,hierarchy=hierarchy.saliva[,c(1,4)],tree=tree_saliva)
-#saveRDS(pairdis.q1P,paste(projectdirR,"Data/pairdis.q1P.",codeSaliva,".RData",sep=""))
-```
-
-##### Distances
-```{r dis_S}
-u0n <- pairdis.q0$L1_UqN
-u0n.dist <- as.dist(u0n)
-u1n <- pairdis.q1$L1_UqN
-u1n.dist <- as.dist(u1n)
-u0Pn <- pairdis.q0P$L1_UqN
-u0Pn.dist <- as.dist(u0Pn)
-u1Pn <- pairdis.q1P$L1_UqN
-u1Pn.dist <- as.dist(u1Pn) 
-```
-
-##### Permanova
-```{r permanova_strata_S}
-adonis2(u0n.dist ~ sample_data(physeq_saliva)$Working_status, strata = sample_data(physeq_saliva)$Pack, permutations = 999)
-adonis2(u1n.dist ~ sample_data(physeq_saliva)$Working_status, strata = sample_data(physeq_saliva)$Pack, permutations = 999)
-adonis2(u0Pn.dist ~ sample_data(physeq_saliva)$Working_status, strata = sample_data(physeq_saliva)$Pack, permutations = 999)
-adonis2(u1Pn.dist ~ sample_data(physeq_saliva)$Working_status, strata = sample_data(physeq_saliva)$Pack, permutations = 999)
-```
-
-##### Permanova
-```{r permanovaAll_S}
-adonis2(u0n.dist ~ sample_data(physeq_saliva)$Working_status + 
-         sample_data(physeq_saliva)$Pack + sample_data(physeq_saliva)$Location + 
-         sample_data(physeq_saliva)$Sex + sample_data(physeq_saliva)$Age, permutations = 999)
-adonis2(u1n.dist ~ sample_data(physeq_saliva)$Working_status + 
-         sample_data(physeq_saliva)$Pack + sample_data(physeq_saliva)$Location + 
-          sample_data(physeq_saliva)$Sex + sample_data(physeq_saliva)$Age, permutations = 999)
-adonis2(u0Pn.dist ~ sample_data(physeq_saliva)$Working_status + sample_data(physeq_saliva)$Pack + 
-         sample_data(physeq_saliva)$Location + sample_data(physeq_saliva)$Sex + 
-         sample_data(physeq_saliva)$Age, permutations = 999)
-adonis2(u1Pn.dist ~ sample_data(physeq_saliva)$Working_status + sample_data(physeq_saliva)$Pack + 
-         sample_data(physeq_saliva)$Location + sample_data(physeq_saliva)$Sex + 
-         sample_data(physeq_saliva)$Age, permutations = 999)
-```
-
-##### Calculate NMDS
-```{r NMDS_S}
-nmds <- metaMDS(as.dist(pairdis.q1$L1_UqN),k=2,trymax=100)
-NMDS=data.frame(x=nmds$point[,1],y=nmds$point[,2])
-NMDS <- merge(NMDS,saliva.metatable,by="row.names")
-head(NMDS)
-```
-
-##### Centroids
-```{r centroids_S}
-NMDS.centroids=aggregate(NMDS[,c(2:3)],by=list(NMDS$Pack),FUN=mean)
-colnames(NMDS.centroids) <- c("Pack","x_cen","y_cen")
-NMDS=merge(NMDS,NMDS.centroids,by="Pack")
-```
-
-##### Plots
-```{r plots_nmds_S}
-ggplot(NMDS, aes(x=x,y=y,colour=Pack,shape=Working_status)) +
-  geom_point(size=2) +
-  geom_point(aes(x=x_cen,y=y_cen),alpha=0) +
-  scale_color_brewer(palette="Dark2") +
-  geom_segment(aes(x=x_cen, y=y_cen, xend=x, yend=y), alpha=0.3) +
-  theme_light() +
-  theme(axis.line = element_line(colour = "grey"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_blank(),
-        panel.background = element_blank(),
-        axis.title=element_blank(),
-        legend.text=element_text(size=10))
-```
-
-##### Calculate NMDS by Working status
-```{r NMDS_S_by_WS}
-nmds <- metaMDS(as.dist(pairdis.q1$L1_UqN),k=2,trymax=100)
-NMDS=data.frame(x=nmds$point[,1],y=nmds$point[,2])
-NMDS <- merge(NMDS,saliva.metatable,by="row.names")
-head(NMDS)
-```
-
-##### Centroids by Working status
-```{r centroids_S_by_WS}
-NMDS.centroids=aggregate(NMDS[,c(2:3)],by=list(NMDS$Working_status),FUN=mean)
-colnames(NMDS.centroids) <- c("Working_status","x_cen","y_cen")
-NMDS=merge(NMDS,NMDS.centroids,by="Working_status")
-```
-
-##### Plots by Working status
-```{r plots_nmds_S_by_WS}
-ggplot(NMDS, aes(x=x,y=y,colour=Working_status, shape=Pack)) +
-  geom_point(size=2) +
-  geom_point(aes(x=x_cen,y=y_cen),alpha=0) +
-  scale_color_brewer(palette="Dark2") +
-  scale_shape_manual(values=1:nlevels(NMDS$Pack)) +
-  geom_segment(aes(x=x_cen, y=y_cen, xend=x, yend=y), alpha=0.3) +
-  theme_light() +
-  theme(axis.line = element_line(colour = "grey"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_blank(),
-        panel.background = element_blank(),
-        axis.title=element_blank(),
-        legend.text=element_text(size=10))
-```

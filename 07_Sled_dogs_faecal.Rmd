@@ -15,33 +15,50 @@ knitr::opts_chunk$set(echo = TRUE)
 <!-- This data has been generated from sled dog samples processed by Mads in the lab and Ostaizka doing the analyses -->
 
 ## Load required libraries
-
-```{r libraries, message=FALSE, warning=FALSE, echo=FALSE}
-library(vegan)
-library(phyloseq)
-library(hilldiv)
-library(ape)
-library(phytools)
-library(dplyr)
-library(tidyr)
-library(tibble)
+```{r}
 library(tidyverse)
-library(microbiome)
+library(ape)
+library(devtools)
 library(ggplot2)
-library("RColorBrewer")
-library(ggpubr)
-library(ranacapa)
-library(phylox)
-library(lme4)
-library(MuMIn)
-library(sjPlot)
-library(nlme)
+library(hillR)
+library(spaa)
+library(vegan)
+library(hilldiv)
+library(phyloseq)
+library(phytools)
+library(microbiome)
 library(matrixStats)
 library(microbiomeutilities)
-library(ggh4x)
+library(lme4)
+library(MuMIn)
+library(nlme)
+library(knitr)
+#library(kableExtra)
+library(pairwiseAdonis)
+library(sjPlot)
+library(distillR)
+library(RColorBrewer)
+library(reshape2)
+library(ggpubr)
+library(ggdendro)
+library(grid)
+library(gplots)
+library(dendextend)
+library(stringr)
+library(Rtsne)
+library(glue)
+library(ggtree)
+library(ggnewscale)
+library(ggtreeExtra)
+library(gridExtra)
 library(hilldiv2)
 library(janitor)
+library(ggh4x)
+library(UpSetR)
+library(GGally)
+library(ggrepel)
 ```
+
 
 ## Declare directories and files
 
@@ -59,19 +76,14 @@ physeq_FL <- prune_taxa(taxa_sums(physeq_FL)>0, physeq_FL)
 
 # Filtering faecal samples
 ```{r faecal, warning=FALSE, echo=FALSE}
-#physeq_faecal <- subset_samples(physeq_FL, Extraction == "Faecal")
-#physeq_faecal = filter_taxa(physeq_faecal.rel, function(x) sum(x > 0.0005) > (0.005*length(x)), TRUE)
-#physeq_faecal <- prune_taxa(taxa_sums(physeq_faecal)>0, physeq_faecal)
 faecal_table <- data.frame(physeq_faecal@otu_table)
 faecal_metadata <- data.frame(physeq_faecal@sam_data)
 faecal_metadata$Pack=factor(faecal_metadata$Pack)
 faecal_metadata$Group <- paste("Group", faecal_metadata$Pack, sep = "_")
-#faecal_metadata <- column_to_rownames(faecal_metadata, "sample")
 sample_data(physeq_faecal) <- faecal_metadata
 tree_faecal = phy_tree(physeq_faecal)
 hierarchy_faecal <- tibble::rownames_to_column(faecal_metadata, "Sample")
 hierarchy_faecal <- hierarchy_faecal[which(hierarchy_faecal[,1] %in% colnames(faecal_table)),]
-saveRDS(physeq_faecal,"resources/physeq_faecal.RData")
 ```
 
 ```{r faecal_match, echo=FALSE}
@@ -108,26 +120,14 @@ cat(nrow(physeq_class@tax_table))
 table(tax_table(physeq_class)[,"Class"]) %>% as.data.frame() %>% arrange(desc(Freq))
 ```
 
-## Bacteria without class information
-```{r bact_noclass, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-physeq_classNA <- subset_taxa(physeq_faecal, is.na(Class))
-cat(nrow(physeq_classNA@tax_table))
-```
-```{r bact_class_info, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-table(tax_table(physeq_classNA)[,"Phylum"]) %>% as.data.frame() %>% arrange(desc(Freq))
-```
-
 ## Number of unique orders
 ```{r bact_order, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-#get_taxa_unique(physeq_class, "Order")
-#table(tax_table(physeq_class)[,"Order"]) %>% as.data.frame()
 order <- get_taxa_unique(physeq_class, "Order")
 cat(length(order))
 ```
 
 ## Number of unique families
 ```{r bact_fam, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-#get_taxa_unique(physeq_class, "Family")
 family <- get_taxa_unique(physeq_class, "Family")
 cat(length(family))
 ```
@@ -149,17 +149,15 @@ cat(nrow(physeq_genussNA@tax_table))
 faecal_metadata <- data.frame(sample_data(physeq_faecal)) %>% rownames_to_column(., "sample")
 faecal_table <- data.frame(physeq_faecal@otu_table)%>% rownames_to_column(., "asv")
 faecal_taxonomy <- data.frame(physeq_faecal@tax_table)%>% rownames_to_column(., "asv")
-sample_data(faecal_metadata)
+
 faecal_table %>%
-  mutate_at(vars(-asv),~./sum(.)) %>% #apply TSS normalisation
-  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% #reduce to minimum number of columns
-  left_join(., faecal_taxonomy, by = join_by(asv == asv)) %>% #append genome metadata
-  left_join(., faecal_metadata, by = join_by(sample == sample)) %>% #append sample metadata
-  ggplot(., aes(x=sample,y=count, fill=Phylum, group=Phylum)) + #grouping enables keeping the same sorting of taxonomic units
+  mutate_at(vars(-asv),~./sum(.)) %>% 
+  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% 
+  left_join(., faecal_taxonomy, by = join_by(asv == asv)) %>% 
+  left_join(., faecal_metadata, by = join_by(sample == sample)) %>% 
+  ggplot(., aes(x=sample,y=count, fill=Phylum, group=Phylum)) + 
     geom_bar(stat="identity", colour="white", linewidth=0.1) +
-#    scale_fill_manual(values=phylum_colors) +
   facet_grid(.~Group,  scales="free_x")+
-#   facet_nested(.~Group+Working_status,  scales="free_x") +
 theme(axis.text.x=element_blank(),
           axis.title.x = element_blank(),
           axis.ticks.x=element_blank(),
@@ -167,7 +165,6 @@ theme(axis.text.x=element_blank(),
       strip.text.x = element_text(size = 12, color="black"),
       strip.background = element_rect(colour=NA, fill=NA),
     panel.background = element_blank(),
-    # panel.border = element_blank(),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.line = element_line(size = 0.5, linetype = "solid", colour = "black"),
@@ -186,27 +183,24 @@ taxonomy_table_top_phylum <- data.frame(top_phylum@tax_table)%>% rownames_to_col
 
 asv_table_top_meta <- asv_table_top_phylum %>%
   mutate_at(vars(-asv),~./sum(.)) %>% #apply TSS normalisation
-  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% #reduce to minimum number of columns
-  left_join(., taxonomy_table_top_phylum, by = join_by(asv == asv)) %>% #append genome metadata
-  left_join(., metadata_row_top_phylum, by = join_by(sample == sample)) #append sample metadata
+  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% 
+  left_join(., taxonomy_table_top_phylum, by = join_by(asv == asv)) %>% 
+  left_join(., metadata_row_top_phylum, by = join_by(sample == sample)) 
 
 metadata_sorted <- metadata_row_top_phylum %>% arrange(Group, sample)
 a <- ifelse(metadata_sorted$Working_status == "Lead", "red", "blue")
 
 asv_table_top_meta %>%
-  ggplot(., aes(x=sample,y=count, fill=Phylum, group=Phylum)) + #grouping enables keeping the same sorting of taxonomic units
-    geom_bar(stat="identity", colour="white", linewidth=0.1) +
-#    scale_fill_manual(values=phylum_colors) +
-#  facet_grid(.~Working_status,  scales="free_x")+
-   facet_nested(.~Group+Working_status,  scales="free_x") +
-theme(
+  ggplot(., aes(x=sample,y=count, fill=Phylum, group=Phylum)) + 
+  geom_bar(stat="identity", colour="white", linewidth=0.1) +
+  facet_nested(.~Group+Working_status,  scales="free_x") +
+  theme(
       strip.text.x = element_text(size = 8, color="black"),
       strip.background = element_rect(colour=NA, fill=NA),
       axis.text.x = element_blank(), #, color=a
       axis.ticks = element_blank(),
       axis.title = element_text(size = 10, face = "bold"),
     panel.background = element_blank(),
-    # panel.border = element_blank(),
     panel.grid.major = element_blank(),
     panel.grid.minor = element_blank(),
     axis.line = element_line(size = 0.5, linetype = "solid", colour = "black"),
@@ -220,7 +214,7 @@ theme(
 ```{r alpha_div, comment="", echo=FALSE, message=FALSE, warning=FALSE}
 #Calculate Hill numbers
 richness <- faecal_table %>% 
-#            column_to_rownames(var="asv") %>% 
+            column_to_rownames(var="asv") %>% 
             dplyr::select(where(~!all(. == 0))) %>% 
             hilldiv(.,q=0) %>% 
             t() %>% 
@@ -229,7 +223,7 @@ richness <- faecal_table %>%
             rownames_to_column(var="sample")
 
 neutral <- faecal_table %>% 
-#            column_to_rownames(var="asv") %>% 
+            column_to_rownames(var="asv") %>% 
             dplyr::select(where(~!all(. == 0))) %>% 
             hilldiv(.,q=1) %>% 
             t() %>% 
@@ -237,7 +231,7 @@ neutral <- faecal_table %>%
             dplyr::rename(neutral=1) %>%
             rownames_to_column(var="sample")
 phylogenetic <- faecal_table %>% 
-#            column_to_rownames(var="asv") %>% 
+            column_to_rownames(var="asv") %>% 
             dplyr::select(where(~!all(. == 0))) %>% 
             hilldiv(.,q=1,tree=tree_faecal) %>% 
             t() %>% 
@@ -248,7 +242,6 @@ phylogenetic <- faecal_table %>%
 alpha_div <- richness %>%
       full_join(neutral,by=join_by(sample==sample)) %>%
       full_join(phylogenetic,by=join_by(sample==sample)) %>%
-#      full_join(functional,by=join_by(sample==sample)) %>%
       left_join(., faecal_metadata, by = join_by(sample == sample))
 #Pack
 richness_mean <- alpha_div %>%
@@ -326,10 +319,8 @@ highlight_df <- alpha_div %>%
              aes(x=Group,y=richness), 
              color='red',
              size=2, show.legend = FALSE)+
-#  geom_violin(alpha = 0.2, width = 0.3, show.legend = FALSE) +
   scale_color_manual(values = alpha_colors[c(1:group_n)]) +
   scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-#  stat_compare_means(show.legend = FALSE) +
   theme(axis.text.x = element_text(vjust = 0.5, size = 10),
         axis.text.y = element_text(size = 10),
         axis.title = element_text(size = 14, face = "bold"),
@@ -352,10 +343,8 @@ highlight_df <- alpha_div %>%
              aes(x=Group,y=neutral), 
              color='red',
              size=4, show.legend = FALSE)+
-#  geom_violin(alpha = 0.2, width = 0.3, show.legend = FALSE) +
   scale_color_manual(values = alpha_colors[c(1:group_n)]) +
   scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-#  stat_compare_means(show.legend = FALSE) +
   theme(axis.text.x = element_text(vjust = 0.5, size = 14),
         axis.text.y = element_text(size = 14),
         axis.title = element_text(size = 16, face = "bold"),
@@ -374,40 +363,30 @@ highlight_df <- alpha_div %>%
 ## Mixed models
 
 ```{r}
-library(lme4)
-library(MuMIn)
-
 ##Negative Binomial
-Modelq0GLMMNB <- glmer.nb(richness ~ Working_status+Group+(1|Group), data = alpha_div)#USE THIS!
-summary(Modelq0GLMMNB)
-r.squaredGLMM(Modelq0GLMMNB)
+Modelq0 <- glmer.nb(richness ~ Working_status+Group+(1|Group), data = alpha_div)
+summary(Modelq0)
+r.squaredGLMM(Modelq0)
 
 #Plot the model
-library(sjPlot)
-#pdf(paste(projectdirR,"Figures/GLMMNB_all_q0.pdf",sep=""),width=7, height=6)
-plot_model(Modelq0GLMMNB,type="pred",terms = "Working_status", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-#dev.off()
-#type = "pred"=Predicted values (marginal effects) for specific model terms. See ggpredict for details.
-
+plot_model(Modelq0,type="pred",terms = "Working_status", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
 ```
+
 ```{r}
 #q1:linear
-library(nlme)
 Modelq1 <- lme(fixed = neutral ~ Working_status+Group, data = alpha_div,
                random = ~ 1 | Group)
 summary(Modelq1)
 anova(Modelq1)
-AIC(Modelq1)# the first model is more appropriate, lower AIC
+AIC(Modelq1)
 r.squaredGLMM(Modelq1)
+
 Model_neutral <- lm(formula = neutral ~ Working_status+Group, data = alpha_div)
 summary(Model_neutral)
 anova(Model_neutral)
 emmeans(Model_neutral, pairwise ~ Group)
 
-#pdf(paste(projectdirR,"Figures/GLMM_all_q1.pdf",sep=""),width=7, height=6)
 plot_model(Modelq1,type="pred",terms = "Working_status", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-#dev.off()
-plot_model(Modelq1,type="re",terms = "Working_status", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
 ```
 
 # Phylum percentages
@@ -441,7 +420,7 @@ phylum_mean <- faecal_phylum_rel %>%
   t() %>%
   as.data.frame()%>%
   rownames_to_column(., "sample") %>%
-  left_join(., faecal_metadata_row, by = join_by(sample == sample)) %>%
+  left_join(., faecal_metadata, by = join_by(sample == sample)) %>%
   group_by(Working_status) %>%
   summarise_at(.vars = names(.)[2:8],.funs = c(mean="mean")) %>%
   t() %>%
@@ -449,14 +428,10 @@ phylum_mean <- faecal_phylum_rel %>%
   row_to_names(row_number = 1)
 ```
 ```{r}
-faecal_metadata_row <- faecal_metadata %>%
-  rownames_to_column(., "sample")
-
 phylum_summary <- faecal_table %>%
-  rownames_to_column(., "asv") %>%
   mutate_at(vars(-asv),~./sum(.)) %>% #apply TSS nornalisation
   pivot_longer(-asv, names_to = "sample", values_to = "count") %>% #reduce to minimum number of columns
-  left_join(faecal_metadata_row, by = join_by(sample == sample)) %>% #append sample metadata
+  left_join(faecal_metadata, by = join_by(sample == sample)) %>% #append sample metadata
   left_join(., taxonomy_table, by = join_by(asv == asv)) %>% #append genome metadata
   group_by(sample,Phylum) %>%
   summarise(relabun=sum(count))
@@ -468,18 +443,17 @@ Phylum_arrange <- phylum_summary %>%
     select(Phylum) %>%
     pull()
 
-pdf("figures/phylum_faecal.pdf",width=14, height=9)
+#pdf("figures/phylum_faecal.pdf",width=14, height=9)
 phylum_summary %>%
     left_join(taxonomy_table %>% 
                 select(Phylum) %>% 
                 unique(),
               by=join_by(Phylum==Phylum)) %>%
-    left_join(faecal_metadata_row,by=join_by(sample==sample)) %>%
+    left_join(faecal_metadata,by=join_by(sample==sample)) %>%
     filter(Phylum %in% Phylum_arrange[1:8]) %>%
     mutate(Phylum=factor(Phylum,levels=rev(Phylum_arrange[1:8]))) %>%
     filter(relabun > 0) %>%
     ggplot(aes(x=relabun, y=Phylum, group=Phylum, color=Phylum)) +
-#        scale_color_manual(values=phylum_colors[-8]) +
         geom_jitter(alpha=0.5, show.legend = ) + 
         facet_grid(.~Working_status)+ 
          theme(panel.background = element_blank(),
@@ -489,7 +463,7 @@ phylum_summary %>%
                                 colour = "grey"),
           axis.line = element_line(linewidth = 0.5, linetype = "solid", colour = "black"))+
         labs(y="Phylum", x="Relative abundance")
-dev.off()
+#dev.off()
 ```
 # Order percentages
 ```{r order_faecal, comment="", echo=FALSE}
@@ -523,7 +497,7 @@ family_mean <- faecal_family_rel %>%
   t() %>%
   as.data.frame()%>%
   rownames_to_column(., "sample") %>%
-  left_join(., faecal_metadata_row, by = join_by(sample == sample)) %>%
+  left_join(., faecal_metadata, by = join_by(sample == sample)) %>%
   group_by(Working_status) %>%
   summarise_at(.vars = names(.)[2:63],.funs = c(mean="mean")) %>%
   t() %>%
@@ -532,14 +506,10 @@ family_mean <- faecal_family_rel %>%
 ```
 
 ```{r}
-faecal_metadata_row <- faecal_metadata %>%
-  rownames_to_column(., "sample")
-
 family_summary <- faecal_table %>%
-  rownames_to_column(., "asv") %>%
   mutate_at(vars(-asv),~./sum(.)) %>% #apply TSS nornalisation
   pivot_longer(-asv, names_to = "sample", values_to = "count") %>% #reduce to minimum number of columns
-  left_join(faecal_metadata_row, by = join_by(sample == sample)) %>% #append sample metadata
+  left_join(faecal_metadata, by = join_by(sample == sample)) %>% #append sample metadata
   left_join(., taxonomy_table, by = join_by(asv == asv)) %>% #append genome metadata
   group_by(sample,Family) %>%
   summarise(relabun=sum(count))
@@ -551,35 +521,30 @@ family_arrange <- family_summary %>%
     select(Family) %>%
     pull()
 
-pdf("figures/family_faecal.pdf",width=14, height=9)
+#pdf("figures/family_faecal.pdf",width=14, height=9)
 family_summary %>%
     left_join(taxonomy_table %>% 
                 select(Family,Phylum) %>% 
                 unique(),
               by=join_by(Family==Family)) %>%
-    left_join(faecal_metadata_row,by=join_by(sample==sample)) %>%
+    left_join(faecal_metadata,by=join_by(sample==sample)) %>%
     filter(Family %in% family_arrange[1:20]) %>%
     mutate(Family=factor(Family,levels=rev(family_arrange[1:20]))) %>%
     filter(relabun > 0) %>%
     ggplot(aes(x=relabun, y=Family, group=Family, color=Phylum)) +
-#        scale_color_manual(values=phylum_colors[-8]) +
         geom_jitter(alpha=0.5) + 
         facet_grid(.~Working_status)+
         theme_minimal() + 
         labs(y="Family", x="Relative abundance", color="Phylum")
-dev.off()
+#dev.off()
 ```
 
 ```{r}
-faecal_metadata_row <- faecal_metadata %>%
-  rownames_to_column(., "sample")
-
 Genus_summary <- faecal_table %>%
-  rownames_to_column(., "asv") %>%
-  mutate_at(vars(-asv),~./sum(.)) %>% #apply TSS normalisation
-  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% #reduce to minimum number of columns
-  left_join(faecal_metadata_row, by = join_by(sample == sample)) %>% #append sample metadata
-  left_join(., taxonomy_table, by = join_by(asv == asv)) %>% #append genome metadata
+  mutate_at(vars(-asv),~./sum(.)) %>% 
+  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% 
+  left_join(faecal_metadata, by = join_by(sample == sample)) %>% 
+  left_join(., taxonomy_table, by = join_by(asv == asv)) %>% 
   group_by(sample,Genus) %>%
   summarise(relabun=sum(count))
 
@@ -590,27 +555,25 @@ Genus_arrange <- Genus_summary %>%
     select(Genus) %>%
     pull()
 
-pdf("figures/Genus_faecal.pdf",width=14, height=9)
+#pdf("figures/Genus_faecal.pdf",width=14, height=9)
 Genus_summary %>%
     left_join(taxonomy_table %>% 
                 select(Genus,Phylum) %>% 
                 unique(),
               by=join_by(Genus==Genus)) %>%
-    left_join(faecal_metadata_row,by=join_by(sample==sample)) %>%
+    left_join(faecal_metadata,by=join_by(sample==sample)) %>%
     filter(Genus %in% Genus_arrange[1:20]) %>%
     mutate(Genus=factor(Genus,levels=rev(Genus_arrange[1:20]))) %>%
     filter(relabun > 0) %>%
     ggplot(aes(x=relabun, y=Genus, group=Genus, color=Phylum)) +
-#        scale_color_manual(values=phylum_colors[-8]) +
         geom_jitter(alpha=0.5) + 
         facet_grid(.~Working_status)+
         theme_minimal() + 
         labs(y="Genus", x="Relative abundance", color="Phylum")
-dev.off()
+#dev.off()
 
 
 ```
-
 
 # Genus percentages
 ```{r genus_faecal, comment="", echo=FALSE}
@@ -620,7 +583,7 @@ faecal.genus.rel <- physeq_faecal.genus.rel@otu_table*100
 means.faecal.genus.rel <- as.data.frame(rowMeans(faecal.genus.rel))
 sd.faecal.genus.rel <- as.data.frame(rowSds(faecal.genus.rel, useNames = TRUE))
 summary.genus.faecal <- merge(means.faecal.genus.rel, sd.faecal.genus.rel, by="row.names")
-colnames(summary.genus.faecal) <- c("family","mean", "sd")
+colnames(summary.genus.faecal) <- c("Genus","mean", "sd")
 percentage.faecal.genus.sort <- summary.genus.faecal[order(-summary.genus.faecal$mean),]
 print(percentage.faecal.genus.sort[1-10,], row.names = FALSE)
 ```
@@ -727,23 +690,23 @@ faecal_table_g <- data.frame(physeq_faecal.genus@otu_table)
 faecal_metadata_g <- data.frame(physeq_faecal.genus@sam_data)
 
 
-Daneborg_samples <- faecal_metadata_g %>% 
+Lead_samples <- faecal_metadata_g %>% 
   rownames_to_column(., "sample") %>% 
                     filter(Working_status == "Lead") %>% 
                     dplyr::select(sample) %>% pull()
 
-Ittoq_samples <- faecal_metadata_g %>% 
+Follower_samples <- faecal_metadata_g %>% 
   filter(Working_status == "Follower") %>% 
   rownames_to_column(., "sample") %>% 
   dplyr::select(sample) %>% pull()
 
 genome_counts_row<-faecal_table_g
-Ittoq <- genome_counts_row[, colnames(genome_counts_row) %in% Ittoq_samples]%>%
-  rowSums()%>% as.data.frame()%>% dplyr::rename(Ittoq=".")%>%rownames_to_column(., "genome")
+Follower <- genome_counts_row[, colnames(genome_counts_row) %in% Follower_samples]%>%
+  rowSums()%>% as.data.frame()%>% dplyr::rename(Follower=".")%>%rownames_to_column(., "genome")
   
-table_upset_analysis <- genome_counts_row[, colnames(genome_counts_row) %in% Daneborg_samples]%>%
-  rowSums()%>% as.data.frame()%>% dplyr::rename(Daneb=".")%>%rownames_to_column(., "genome")%>%
-      dplyr::left_join(., Ittoq, by = join_by(genome == genome))%>%column_to_rownames(., "genome")
+table_upset_analysis <- genome_counts_row[, colnames(genome_counts_row) %in% Lead_samples]%>%
+  rowSums()%>% as.data.frame()%>% dplyr::rename(Lead=".")%>%rownames_to_column(., "genome")%>%
+      dplyr::left_join(., Follower, by = join_by(genome == genome))%>%column_to_rownames(., "genome")
 
 table_upset_analysis_binary <- ifelse(table_upset_analysis > 0, 1, 0) %>% as.data.frame()
 
@@ -760,50 +723,14 @@ upset(as.data.frame(table_upset_analysis_binary),
 ## Ancombc2 (considering structural zeros)
 ```{r ancom_rand, comment="", echo=FALSE, message=FALSE, warning=FALSE}
 library(ANCOMBC)
-#x <- faecal_table %>% rownames_to_column(., "sample")%>% t()%>%#append genome metadata
-#  left_join(., faecal_metadata, by = join_by(sample == sample))
+
 set.seed(1234) #set seed for reproducibility
-#fm <- lmer(Pool ~ Working_status + (1 | Group), data=a)
-#taula <- data.frame(physeq_faecal@otu_table)
-#metadata <- data.frame(physeq_FL@sam_data)
-#physeq_faecal1<-physeq_faecal
-
-#a$Team <- paste(a$Pack, "Team", sep = "")
-#sample_tab <- sample_data(a)
-#sample_data(physeq_faecal1)<- sample_tab
-
-physeq_faecal_genus <- microbiome::aggregate_taxa(physeq_faecal, 'Genus')
-ancom_rand_output_generaagglo = ancombc2(data = physeq_faecal_genus, 
-                  assay_name = "counts",
-                  tax_level = NULL, #change to agglomerate analysis to a higher taxonomic range
-                  fix_formula = "Working_status", #fixed variable(s)
-                  rand_formula = "(1|Group)",
-                  p_adj_method = "holm", 
-                  pseudo_sens = TRUE,
-                  prv_cut = 0, 
-                  s0_perc = 0,
-                  group = NULL, 
-                  struc_zero = FALSE, 
-                  neg_lb = FALSE,
-                  alpha = 0.05, 
-                  n_cl = 2, 
-                  verbose = TRUE,
-                  global = FALSE, 
-                  pairwise = FALSE, 
-                  dunnet = FALSE, 
-                  trend = FALSE,
-                  iter_control = list(tol = 1e-5, max_iter = 20, verbose = FALSE),
-                  em_control = list(tol = 1e-5, max_iter = 100),
-                  lme_control = lmerControl(),#lme4::lmerControl()
-                  mdfdr_control = list(fwer_ctrl_method = "holm", B = 100), 
-                  trend_control = NULL)
-
 
 ancom_rand_output_genera = ancombc2(data = physeq_faecal, 
                   assay_name = "counts",
                   tax_level = "Genus", 
                   fix_formula = "Working_status", 
-                  rand_formula = "(1|Group)",
+#                  rand_formula = "(1|Group)",
                   p_adj_method = "holm", 
                   pseudo_sens = TRUE,
                   prv_cut = 0, 
@@ -820,7 +747,7 @@ ancom_rand_output_genera = ancombc2(data = physeq_faecal,
                   trend = FALSE,
                   iter_control = list(tol = 1e-5, max_iter = 20, verbose = FALSE),
                   em_control = list(tol = 1e-5, max_iter = 100),
-                  lme_control = lmerControl(),
+  #                lme_control = lmerControl(),
                   mdfdr_control = list(fwer_ctrl_method = "holm", B = 100), 
                   trend_control = NULL)
 
@@ -839,51 +766,12 @@ ancom_rand_output_genera_filt <- ancom_rand_output_genera$res %>%
   dplyr::arrange(lfc_Working_statusLead) %>% 
   separate_wider_delim(taxon, ":", names = c('id', 'taxon')) %>%
   left_join(genus_unique, by=join_by(taxon==Genus))
-
-ancom_rand_output_generaagglo_filt <- ancom_rand_output_generaagglo$res %>%
-  dplyr::select(taxon, lfc_Working_statusLead, p_Working_statusLead) %>%
-  filter(p_Working_statusLead < 0.05) %>%
-  dplyr::arrange(lfc_Working_statusLead) %>% 
-  left_join(genus_unique, by=join_by(taxon==Genus))
-
-
-colors_alphabetic <- read_tsv("https://raw.githubusercontent.com/earthhologenome/EHI_taxonomy_colour/main/ehi_phylum_colors.tsv") %>%
-  mutate_at(vars(phylum), ~ str_replace(., "[dpcofgs]__", ""))  %>%
-  right_join(tax, by=join_by(phylum == Phylum)) %>%
-  dplyr::select(phylum, colors) %>%
-  mutate(colors = str_c(colors, "80"))  %>% #add 80% alpha
-	unique() %>%
-	dplyr::arrange(phylum)
-
-tax_table <- as.data.frame(unique(ancombc_rand_table$Phylum))
-colnames(tax_table)[1] <- "Phylum"
-
-tax_color <- left_join(tax_table, colors_alphabetic, by=join_by(Phylum==phylum))%>%
-	dplyr::arrange(Phylum) %>%
-	dplyr::select(colors) %>%
-	pull()
 ```
 
 
 ```{r ancombc_rand_plot, comment="", echo=FALSE, message=FALSE, warning=FALSE, fig.height=8, fig.width=10, fig.fullwidth=TRUE}
-ggplot(ancombc_rand_table2, aes(x=forcats::fct_rev(taxon), y=lfc_Working_statusLead, color=taxon)) + 
-  geom_point(size=4) + 
-#  scale_color_manual(values=tax_color) + 
-  geom_hline(yintercept=0) + 
-  coord_flip()+
-  theme(axis.text = element_text(size = 10, face="bold.italic"),
-        axis.title = element_text(size = 12),
-        legend.position = "right", 
-        legend.title = element_blank(),
-        panel.background = element_blank(),
-          panel.grid.major = element_line(size = 0.15, linetype = 'solid',
-                                colour = "grey"))+
-  xlab("Genus") + 
-  ylab("log2FoldChange")+
-  guides(col=guide_legend("Phylum"))
-
 colors <- c("#e5bd5b", "#6b7398", "#76b183", "#d57d2c")#, "#2a2d26", "#f9d4cc", "#3c634e", "#ea68c3")
-pdf("figures/differential_faecal_genus2.pdf",width=14, height=9)
+#pdf("figures/differential_faecal_genus2.pdf",width=14, height=9)
 ancom_rand_output_genera_filt %>%
   mutate(taxon=factor(taxon,levels=ancom_rand_output_genera_filt$taxon)) %>%
   ggplot(aes(x=lfc_Working_statusLead, y=forcats::fct_rev(taxon), fill=Phylum)) +
@@ -906,264 +794,5 @@ ancom_rand_output_genera_filt %>%
         legend.title = element_text(size = 14),
         ) +
         labs(x="log2FoldChange", y="Genera")
-dev.off()
-```
-
-```{r}
-#pdf("figures/differential_faecal_genus1.pdf",width=14, height=9)
-ancom_rand_output_generaagglo_filt %>%
-  mutate(taxon=factor(taxon,levels=ancom_rand_output_generaagglo_filt$taxon)) %>%
-  ggplot(aes(x=lfc_Working_statusLead, y=forcats::fct_rev(taxon), fill=Phylum)) +
-  geom_col(size = 2) +
-          scale_fill_manual(values = colors) +
-        geom_hline(yintercept = 0) +
-        geom_vline(xintercept = 0, linetype="dashed", color = "grey", size=1) +
-      geom_text(aes(1.5, 8), label = "Enriched\nin Leader", color="#666666") +
-      geom_text(aes(-2.5, 5), label = "Enriched\nin Follower", color="#666666")+
-        theme(
-          panel.background = element_blank(),
-          axis.line = element_line(size = 0.5, linetype = "solid", colour = "black"),
-          axis.title.x = element_blank(),
-          strip.background = element_blank(), 
-          strip.text = element_blank()
-        ) +
-        labs(x="log2FoldChange", y="Family")
 #dev.off()
 ```
-
-```{r ancom_rand_volcano, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-ancom_result <- ancom_rand_output1$res %>%
- # na.omit() %>%
-#  dplyr::rename(genome=taxon) %>%
-  left_join(tax,by=join_by(taxon==taxon))
-ancom_result %>%
-    mutate(significance = ifelse(p_Working_statusLead < 0.05, "1", "0")) %>%
-    ggplot(., aes(x=-log(p_Working_statusLead), y=lfc_Working_statusLead, color=significance)) +
-      geom_point() +
-      scale_color_manual(values = c("#cccccc","#00FFFF")) +
-      geom_text(aes(3, 5), label = "Enriched\nin Ittoqqortoormiit", color="#666666") +
-      geom_text(aes(3, -5), label = "Enriched\nin Danenborg", color="#666666") +
-      labs(color="Significance", y="Difference between locations", x="p-value") +
-      theme_classic()
-```
-
-```{r}
-physeq_L <- subset_samples(physeq_faecal, Working_status %in% c("Lead"))
-physeq_L <- prune_taxa(taxa_sums(physeq_L)>0, physeq_L)
-physeq_L.core <- core(physeq_L, detection = 0, prevalence = 0.90)
-tax_table(physeq_L.core)
-```
-
-```{r}
-physeq_FL.core <- core(physeq_faecal, detection = 0, prevalence = 0.99)
-core_FL <- as.data.frame(tax_table(physeq_FL.core))
-physeq_faecal.genus
-physeq_FL.core_gen <- core(physeq_faecal.genus, detection = 0, prevalence = 0.90)
-core_FL <- as.data.frame(tax_table(physeq_FL.core_gen))
-```
-```{r}
-physeq_L <- subset_samples(physeq_faecal, Working_status %in% c("Lead"))
-physeq_L <- prune_taxa(taxa_sums(physeq_L)>0, physeq_L)
-physeq_L.core <- core(physeq_L, detection = 0, prevalence = 0.99)
-tax_table(physeq_L.core)
-
-physeq_L_gen <- subset_samples(physeq_faecal.genus, Working_status %in% c("Lead"))
-physeq_L_gen <- prune_taxa(taxa_sums(physeq_L_gen)>0, physeq_L_gen)
-physeq_L_gen.core <- core(physeq_L_gen, detection = 0, prevalence = 0.99)
-tax_table(physeq_L_gen.core)
-```
-
-```{r}
-physeq_F <- subset_samples(physeq_faecal, Working_status %in% c("Follower"))
-physeq_F <- prune_taxa(taxa_sums(physeq_F)>0, physeq_F)
-physeq_F.core <- core(physeq_F, detection = 0, prevalence = 0.99)
-core_F <- as.data.frame(tax_table(physeq_F.core))
-
-physeq_F_gen <- subset_samples(physeq_faecal.genus, Working_status %in% c("Follower"))
-physeq_F_gen <- prune_taxa(taxa_sums(physeq_F_gen)>0, physeq_F_gen)
-physeq_F_gen.core <- core(physeq_F_gen, detection = 0, prevalence = 0.90)
-physeq_F_gen_F <- as.data.frame(tax_table(physeq_F_gen.core))
-```
-
-
-```{r}
-physeq_faecal.genus <- microbiome::aggregate_taxa(physeq_faecal, 'Genus')
-
-physeqG_FL.core <- core(physeq_faecal.genus, detection = 0, prevalence = 0.99)
-coreG_FL <- as.data.frame(tax_table(physeqG_FL.core))
-
-```
-```{r}
-physeqG_L <- subset_samples(physeq_faecal.genus, Working_status %in% c("Lead"))
-physeqG_L <- prune_taxa(taxa_sums(physeqG_L)>0, physeqG_L)
-physeqG_L.core <- core(physeqG_L, detection = 0, prevalence = 0.99)
-coreG_L <- as.data.frame(tax_table(physeqG_L.core))
-
-```
-
-```{r}
-physeqG_F <- subset_samples(physeq_faecal.genus, Working_status %in% c("Follower"))
-physeqG_F <- prune_taxa(taxa_sums(physeqG_F)>0, physeqG_F)
-physeqG_F.core <- core(physeqG_F, detection = 0, prevalence = 0.99)
-coreG_F <- as.data.frame(tax_table(physeqG_F.core))
-```
-```{r}
-library(RColorBrewer)
-library(reshape)
-
-prevalences <- seq(.05, 1, .05)
-
-detections <- round(10^seq(log10(0.01), log10(.2), length = 9), 3)
-
-# Also define gray color palette
-gray <- gray(seq(0,1,length=5))
-
-#Added pseq.rel, I thin... must be checked if it was in the the rednred version,; where it is initialized
-pseq.rel<- microbiome::transform(physeq_faecal.genus, 'compositional')
-#min-prevalence gets the 100th highest prevalence
-p <- plot_core(pseq.rel,
-               plot.type = "heatmap", 
-               colours = rev(brewer.pal(5, "Spectral")),
-               prevalences = prevalences, 
-               detections = detections, 
-               min.prevalence = prevalence(pseq.rel, sort = TRUE)[100]) +
-  labs(x = "Detection Threshold\n(Relative Abundance (%))") +
-    
-  #Adjusts axis text size and legend bar height
-  theme(axis.text.y= element_text(size=8, face="italic"),
-        axis.text.x.bottom=element_text(size=8),
-        axis.title = element_text(size=10),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=10))
-
-print(p)
-```
-```{r}
-physeq_F <- subset_samples(physeq_faecal.genus, Working_status %in% c("Follower"))
-physeq_F <- prune_taxa(taxa_sums(physeq_F)>0, physeq_F)
-pseq.rel<- microbiome::transform(physeq_F, 'compositional')
-#min-prevalence gets the 100th highest prevalence
-p <- plot_core(pseq.rel,
-               plot.type = "heatmap", 
-               colours = rev(brewer.pal(5, "Spectral")),
-               prevalences = prevalences, 
-               detections = detections, 
-               min.prevalence = prevalence(pseq.rel, sort = TRUE)[100]) +
-  labs(x = "Detection Threshold\n(Relative Abundance (%))") +
-    
-  #Adjusts axis text size and legend bar height
-  theme(axis.text.y= element_text(size=8, face="italic"),
-        axis.text.x.bottom=element_text(size=8),
-        axis.title = element_text(size=10),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=10))
-
-print(p)
-```
-```{r}
-physeq_L <- subset_samples(physeq_faecal.genus, Working_status %in% c("Lead"))
-physeq_L <- prune_taxa(taxa_sums(physeq_L)>0, physeq_L)
-pseq.rel<- microbiome::transform(physeq_L, 'compositional')
-#min-prevalence gets the 100th highest prevalence
-p <- plot_core(pseq.rel,
-               plot.type = "heatmap", 
-               colours = rev(brewer.pal(5, "Spectral")),
-               prevalences = prevalences, 
-               detections = detections, 
-               min.prevalence = prevalence(pseq.rel, sort = TRUE)[69]) +
-  labs(x = "Detection Threshold\n(Relative Abundance (%))") +
-    
-  #Adjusts axis text size and legend bar height
-  theme(axis.text.y= element_text(size=8, face="italic"),
-        axis.text.x.bottom=element_text(size=8),
-        axis.title = element_text(size=10),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=10))
-
-print(p)
-```
-```{r}
-physeq_faecal.genus.rel <-  microbiome::transform(physeq_faecal.genus, "compositional")
-ex3 <- subset_taxa(physeq_faecal.genus.rel, Genus %in% c("Bacteroides","Clostridium_sensu_stricto_1", "Blautia", "Lachnoclostridium"))
-gen_sam<- data.frame(ex3@sam_data)%>%
-  rownames_to_column(., "sample")
-gen<- data.frame(ex3@otu_table)%>%
-  t() %>%
-  as.data.frame()%>%
-  rownames_to_column(., "sample") %>%
-  left_join(., gen_sam, by = join_by(sample == sample)) %>%
-  group_by(Working_status) %>%
-  summarise_at(.vars = names(.)[2:63],.funs = c(mean="mean")) %>%
-  t() %>%
-  as.data.frame() %>%
-  row_to_names(row_number = 1)
-
-
-colNames <- names(gen)[2:5]
-for(i in colNames){
-  plt <- ggplot(gen, aes(x=Working_status, y=.data[[i]], color = Working_status)) +
-    geom_boxplot(alpha = 0.2, outlier.shape = NA, width = 0.3, show.legend = FALSE) +
-  geom_jitter(width = 0.1, show.legend = TRUE) +
-  theme_minimal() +
-  theme(
-    axis.line = element_line(size = 0.5, linetype = "solid", colour = "black"),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.border = element_blank())
-print(plt)
-}
-```
-
-
-```{r}
-alpha_colors <- c("#e5bd5b", "#6b7398", "#76b183", "#d57d2c", "#2a2d26", "#f9d4cc", "#3c634e", "#ea68c3")
-group_n <- gen %>%
-  select(Group) %>%
-  pull() %>%
-  unique() %>%
-  length()
-
-highlight_df <- gen %>% 
-             filter(Working_status=="Lead")
-gen %>%
-  ggplot(aes(x = Group, y = Lachnoclostridium, group = Group, color = Group, fill = Group)) +
-   geom_boxplot(alpha = 0.2, outlier.shape = NA, show.legend = FALSE)+
-   geom_jitter(width = 0.2, size = 2.5, show.legend = FALSE) + 
-  geom_point(data=highlight_df, 
-             aes(x=Group,y=Lachnoclostridium), 
-             color='red',
-             size=4, show.legend = FALSE)+
-#  geom_violin(alpha = 0.2, width = 0.3, show.legend = FALSE) +
-  scale_color_manual(values = alpha_colors[c(1:group_n)]) +
-  scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-#  stat_compare_means(show.legend = FALSE) +
-  theme(axis.text.x = element_text(vjust = 0.5, size = 14),
-        axis.text.y = element_text(size = 14),
-        axis.title = element_text(size = 16, face = "bold"),
-        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
-        axis.title.x = element_text(margin = margin(t = 20, r = 0, b = 0, l = 0)),
-        panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        plot.title = element_text(size=22, face="bold"),
-        axis.line = element_line(size = 0.5, linetype = "solid", colour = "black")) +
-  guides(colour = guide_legend(override.aes = list(size = 6))) +
-  labs(x = "Sled dog group", y = "Neutral alpha diversity", title="Bacteroides")
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

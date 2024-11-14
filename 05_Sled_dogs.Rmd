@@ -27,7 +27,7 @@ library(ggplot2)
 library(RColorBrewer)
 library(ggpubr)
 library(ranacapa)
-library(phylox)
+#library(phylox)
 library(lme4)
 library(MuMIn)
 library(sjPlot)
@@ -51,7 +51,7 @@ physeq_phylum_clean <- prune_taxa(taxa_sums(physeq_phylum_clean)>0, physeq_phylu
 physeq_FL <- subset_samples(physeq_phylum_clean, Working_status %in% c("Follower", "Lead"))
 physeq_FL <- prune_taxa(taxa_sums(physeq_FL)>0, physeq_FL)
 physeq_FL.rel <-  microbiome::transform(physeq_FL, "compositional")
-physeq_FL.rel = filter_taxa(physeq_FL.rel, function(x) sum(x) > 0.005, TRUE)# subset the OTUs that have a total sum greater than 0.005%. More explicitly, the sum of an OTU across all samples is greater than 0.005% of all OTUs
+physeq_FL.rel = filter_taxa(physeq_FL.rel, function(x) sum(x) > 0.005, TRUE)
 a <- data.frame(physeq_FL.rel@otu_table)
 b <- data.frame(physeq_FL@otu_table)
 c <- b %>% filter(row.names(b) %in% row.names(a))
@@ -65,35 +65,35 @@ metadata$Group <- paste("Group", metadata$Pack, sep = "_")
 metadata_row <- rownames_to_column(metadata, "sample")
 sample_data(physeq_FL) <- metadata
 
-#asv.table <- as.data.frame(physeq_FL@otu_table)
 asv_table <- data.frame(physeq_FL@otu_table) %>% rownames_to_column(., "asv")
 taxonomy_table <- data.frame(physeq_FL@tax_table)%>% rownames_to_column(., "asv")
 tree = phy_tree(physeq_FL)
 tree <- force.ultrametric(tree, method = "extend")
 asv_table_rel <- asv_table %>%
   mutate_at(vars(-asv),~./sum(.))
-#a <- asv_table %>% select(-asv) %>% rowSums() %>% as.data.frame()
 
 
-physeq_filtered_keep <- readRDS("/Users/jtk712/Documents/Projects/GreenDogs/DADA2/Seq1/physeq_filtered_keepNO.RData")
-physeq_bacteria <- subset_taxa(physeq_filtered_keep, Kingdom == "Bacteria")
-physeq_others <- subset_taxa(physeq_filtered_keep, Kingdom != "Bacteria")#35
+# physeq_filtered_keep <- readRDS("/Users/jtk712/Documents/Projects/GreenDogs/DADA2/Seq1/physeq_filtered_keepNO.RData")
+# physeq_bacteria <- subset_taxa(physeq_filtered_keep, Kingdom == "Bacteria")
+# physeq_others <- subset_taxa(physeq_filtered_keep, Kingdom != "Bacteria")#35
 #physeq_phylum <- prune_taxa(taxa_sums(physeq_phylum)>0, physeq_phylum)
 ```
+
 
 ## Summary
 
 ### Explore the number of samples 
-```{r samples_faecal, comment="", echo=FALSE}
+```{r samples_all, comment="", echo=FALSE}
 table(meta(physeq_FL)$Extraction, meta(physeq_FL)$Location)
 table(meta(physeq_FL)$Working_status, meta(physeq_FL)$Location)
 table(meta(physeq_FL)$Extraction)
 ```
+
 ### Rarefraction curves
 
 ```{r rarecurves}
 #pdf("figures/rarefaction.pdf",width=14, height=9)
-ggrare(physeq_FL_count, step = 1000, color = "Extraction", se = FALSE) +
+ggrare(physeq_FL, step = 1000, color = "Extraction", se = FALSE) +
   scale_color_manual(values=c("#e5bd5b", "#6b7398"))+
   theme_classic() + 
   labs(colour = "Body site")
@@ -105,9 +105,9 @@ E_samples = row.names(metadata[metadata$Extraction == "Saliva",])
 H_samples = row.names(metadata[metadata$Extraction == "Faecal",])
 
 #Subset countable
-countable_E <- asv.table[,colnames(asv.table) %in% E_samples]
+countable_E <- asv_table[,colnames(asv_table) %in% E_samples]
 countable_E[countable_E > 0] <- 1
-countable_H <- asv.table[,colnames(asv.table) %in% H_samples]
+countable_H <- asv_table[,colnames(asv_table) %in% H_samples]
 countable_H[countable_H > 0] <- 1
 
 #Add them to a list
@@ -133,62 +133,23 @@ table(tax_table(physeq_class)[,"Class"]) %>% as.data.frame() %>% arrange(desc(Fr
 
 ## Bacteria without class information
 ```{r bact_noclass, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-physeq_classNA <- subset_taxa(physeq_FL, is.na(Class))
-cat(nrow(physeq_classNA@tax_table))
+physeq_classNA <- subset_taxa(physeq_FL, is.na(Class))#all have class information
 ```
 
-```{r bact_noclass_info, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-table(tax_table(physeq_classNA)[,"Phylum"]) %>% as.data.frame()
-```
-
-```{r barplot_na, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-metadata_row_na <- data.frame(sample_data(physeq_classNA)) %>% rownames_to_column(., "sample")
-asv_table_na <- data.frame(physeq_classNA@otu_table)%>% rownames_to_column(., "asv")
-taxonomy_table_na <- data.frame(physeq_classNA@tax_table)%>% rownames_to_column(., "asv")
-
-asv_table_na %>%
-  mutate_at(vars(-asv),~./sum(.)) %>% #apply TSS normalisation
-  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% #reduce to minimum number of columns
-  left_join(., taxonomy_table_na, by = join_by(asv == asv)) %>% #append genome metadata
-  left_join(., metadata_row_na, by = join_by(sample == sample)) %>% #append sample metadata
-  ggplot(., aes(x=sample,y=count, fill=Phylum, group=Phylum)) + #grouping enables keeping the same sorting of taxonomic units
-    geom_bar(stat="identity", colour="white", linewidth=0.1) +
-#    scale_fill_manual(values=phylum_colors) +
-  facet_grid(.~Extraction,  scales="free_x")+
-#    facet_nested(.~Individual+Sample_type,  scales="free_x") +
-theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 6),
-      axis.text.y = element_text(size = 8),
-      axis.title = element_text(size = 10, face = "bold"),
-    panel.background = element_blank(),
-    # panel.border = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    axis.line = element_line(size = 0.5, linetype = "solid", colour = "black"),
-    legend.text = element_text(size = 6),
-    legend.title = element_text(size=10, face = "bold"),
-    legend.key.size = unit(0.3, 'cm')) +
-  labs(x = "Sample", y = "Relative abundances",fill="Phylum")+
-    guides(fill = guide_legend(ncol = 1)) 
-```
 ## Number of unique Phyla
 ```{r bact_phyla, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-#get_taxa_unique(physeq_class, "Order")
-#table(tax_table(physeq_class)[,"Order"]) %>% as.data.frame()
 phyla <- get_taxa_unique(physeq_FL, "Phylum")
 cat(length(phyla))
 ```
 
 ## Number of unique orders
 ```{r bact_order, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-#get_taxa_unique(physeq_class, "Order")
-#table(tax_table(physeq_class)[,"Order"]) %>% as.data.frame()
 order <- get_taxa_unique(physeq_FL, "Order")
 cat(length(order))
 ```
 
 ## Number of unique families
 ```{r bact_fam, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-#get_taxa_unique(physeq_class, "Family")
 family <- get_taxa_unique(physeq_FL, "Family")
 cat(length(family))
 ```
@@ -208,7 +169,6 @@ faecal_table <- data.frame(physeq_faecal@otu_table)
 faecal_metadata <- data.frame(physeq_faecal@sam_data)
 faecal_metadata$Pack=factor(faecal_metadata$Pack)
 faecal_metadata$Group <- paste("Group", faecal_metadata$Pack, sep = "_")
-#faecal_metadata <- column_to_rownames(faecal_metadata, "sample")
 sample_data(physeq_faecal) <- faecal_metadata
 tree_faecal = phy_tree(physeq_faecal)
 hierarchy_faecal <- tibble::rownames_to_column(faecal_metadata, "Sample")
@@ -232,15 +192,15 @@ sample_data(physeq_saliva) <- saliva_metatable
 saliva_metatable<- saliva_metatable %>% rownames_to_column(., "sample")
 ```
 
-## Number of unique Phyla
+## Number of unique Phyla in saliva
 ```{r bact_phyla, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-phyla_all <- get_taxa_unique(physeq_FL, "Phylum")
-phyla_saliva <- get_taxa_unique(physeq_saliva, "Phylum")
-phyla_faecal <- get_taxa_unique(physeq_faecal, "Phylum")
-phyla_faecal %in% phyla_saliva
-phyla_saliva  %in% phyla_faecal 
+get_taxa_unique(physeq_saliva, "Phylum")
 ```
 
+## Number of unique Phyla in faeces
+```{r bact_phyla, comment="", echo=FALSE, message=FALSE, warning=FALSE}
+get_taxa_unique(physeq_faecal, "Phylum")
+```
 
 ## Barplots
 ```{r barplot_na, comment="", echo=FALSE, message=FALSE, warning=FALSE}
@@ -250,26 +210,22 @@ asv_table_na <- data.frame(top_phylum@otu_table)%>% rownames_to_column(., "asv")
 taxonomy_table_na <- data.frame(top_phylum@tax_table)%>% rownames_to_column(., "asv")
 
 
-pdf("figures/Barplot_all_filtered.pdf",width=14, height=9)
+#pdf("figures/Barplot_all_filtered.pdf",width=14, height=9)
 asv_table_na %>%
-  mutate_at(vars(-asv),~./sum(.)) %>% #apply TSS normalisation
-  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% #reduce to minimum number of columns
-  left_join(., taxonomy_table_na, by = join_by(asv == asv)) %>% #append genome metadata
-  left_join(., metadata_row_na, by = join_by(sample == sample)) %>% #append sample metadata
-  ggplot(., aes(x=sample,y=count, fill=fct_reorder(Phylum,count))) + #grouping enables keeping the same sorting of taxonomic units
+  mutate_at(vars(-asv),~./sum(.)) %>% 
+  pivot_longer(-asv, names_to = "sample", values_to = "count") %>% 
+  left_join(., taxonomy_table_na, by = join_by(asv == asv)) %>% 
+  left_join(., metadata_row_na, by = join_by(sample == sample)) %>% 
+  ggplot(., aes(x=sample,y=count, fill=fct_reorder(Phylum,count))) + 
   geom_bar(stat="identity") +#, colour="white", linewidth=0.1
   scale_fill_manual(values = c("#000000", "#3c634e","#C0C0C0", "#98AFC7", "#6698FF", "#153E7E","#e5bd5b", "#6b7398", "#76b183", "#d57d2c", "#2a2d26"))+
-#  "#e5bd5b", "#6b7398", "#76b183", "#d57d2c", "#2a2d26", "#f9d4cc", "#3c634e", "#ea68c3"
-#  scale_fill_brewer(palette = "BrBG") +
   facet_grid(.~Extraction,  scales="free_x")+
-#  facet_nested(.~ Extraction+Group,  scales="free_x") +
 theme(strip.background = element_blank(),
       axis.text.x=element_blank(),
       axis.title.x = element_blank(),
       axis.ticks.x=element_blank(),
       axis.title = element_text(size = 10, face = "bold"),
       panel.background = element_blank(),
-      # panel.border = element_blank(),
       panel.grid.major = element_blank(),
       panel.grid.minor = element_blank(),
       axis.line = element_line(size = 0.5, linetype = "solid", colour = "black"),
@@ -278,8 +234,27 @@ theme(strip.background = element_blank(),
       legend.key.size = unit(0.3, 'cm'),
       strip.text.x = element_text(size = 12, colour = "black")) +
   labs(x = "Sample", y = "Relative abundances",fill="Top 10 phyla")+
-    guides(fill = guide_legend(ncol = 1))
-dev.off()
+  guides(fill = guide_legend(ncol = 1))
+#dev.off()
+```
+
+### Which phyla are different in both sample types
+
+```{r phyl_MW, comment="", echo=FALSE, message=FALSE, warning=FALSE}
+physeq_clr <- microbiome::transform(physeq_FL, 'clr')
+physeq_clr_phylum <- microbiome::aggregate_taxa(physeq_clr, 'Phylum')
+sample_metadata <- data.frame(physeq_clr@sam_data)%>%
+  rownames_to_column(., "sample")
+clr_t_phylum <- as.data.frame(t(as.matrix(physeq_clr_phylum@otu_table))) %>%
+  rownames_to_column(., "sample")%>% 
+  left_join(., sample_metadata[c(1,3)], by = join_by(sample == sample))
+significant_phylum <- clr_t_phylum %>%
+    pivot_longer(-c(sample,Extraction), names_to = "Phylum", values_to = "value") %>%
+    group_by(Phylum) %>%
+    summarise(p_value = wilcox.test(value ~ Extraction)$p.value) %>%
+    mutate(p_adjust=p.adjust(p_value, method="BH")) %>%
+    filter(p_adjust < 0.05)
+significant_phylum
 ```
 
 # Alpha diversity
@@ -315,38 +290,25 @@ phylogenetic <- asv_table %>%
 # Merge all metrics
 alpha_div <- richness %>%
       full_join(neutral,by=join_by(sample==sample)) %>%
-      full_join(phylogenetic,by=join_by(sample==sample)) %>%
-#      full_join(functional,by=join_by(sample==sample)) %>%
-      left_join(., metadata_row, by = join_by(sample == sample))
+      full_join(phylogenetic,by=join_by(sample==sample))
 
-
-richness_mean <- alpha_div %>%
-  group_by(Extraction) %>%
-  dplyr::summarise_at(.vars = names(.)[2], .funs = c("Richness mean" = "mean", "Richness sd" = "sd"))
-
-neutral_mean <- alpha_div %>%
-  group_by(Extraction) %>%
-  dplyr::summarise_at(.vars = names(.)[3], .funs = c("Neutral mean" = "mean", "Neutral sd" = "sd"))
-
-phylogenetic_mean <- alpha_div %>%
-  group_by(Extraction) %>%
-  dplyr::summarise_at(.vars = names(.)[4], .funs = c("Phylogenetic mean" = "mean", "Phylogenetic sd" = "sd"))
-
-
-cbind(richness_mean, neutral_mean[, 2:3], phylogenetic_mean[, 2:3]) %>% #
-  as.data.frame()%>%
-  t() %>%
-  row_to_names(row_number = 1) %>%
-  as.data.frame() %>%
-  mutate_if(is.character, as.numeric)  %>%
-  knitr::kable(.,digits = c(3,3))
-
-
+```
+```{r alpha_div_extraction_summary, comment="",echo=FALSE, message=FALSE, warning=FALSE, eval=FALSE}
 alpha_div %>%
-  group_by(Extraction) %>%
-  summarise(richness=mean(richness), neutral=mean(neutral), phylogenetic=mean(phylogenetic)) %>%
-  tt()
-
+  pivot_longer(-sample, names_to = "alpha", values_to = "value") %>%
+  left_join(metadata_row, by = join_by(sample == sample)) %>%
+    group_by(alpha)%>%
+    summarise(
+              Faecal_mean=mean(value[Extraction=="Faecal"], na.rm=T),
+              Faecal_sd=sd(value[Extraction=="Faecal"], na.rm=T),
+              Saliva_mean=mean(value[Extraction=="Saliva"], na.rm=T),
+              Saliva_sd=sd(value[Extraction=="Saliva"], na.rm=T)) %>%
+    mutate(
+           Faecal=str_c(round(Faecal_mean,2),"±",round(Faecal_sd,2)),
+           Saliva=str_c(round(Saliva_mean,2),"±",round(Saliva_sd,2))) %>% 
+    arrange(-Faecal_mean) %>% 
+    dplyr::select(alpha,Faecal,Saliva) %>% 
+    tt()
 ```
 
 ## Plot diversities
@@ -374,20 +336,21 @@ alpha_div_pivot %>%
 
 ```{r alpha_div_species, comment="", echo=FALSE, message=FALSE, warning=FALSE}
 alpha_colors <- c("#e5bd5b", "#6b7398", "#76b183", "#d57d2c", "#2a2d26", "#f9d4cc", "#3c634e", "#ea68c3")
-pdf("figures/richness_div_body.pdf",width=7, height=6)
+
 group_n <- alpha_div %>%
+  left_join(., metadata_row, by = join_by(sample == sample))%>%
   select(Extraction) %>%
   pull() %>%
   unique() %>%
   length()
+#pdf("figures/richness_div_body.pdf",width=7, height=6)
  alpha_div %>%
+  left_join(., metadata_row, by = join_by(sample == sample))%>%
   ggplot(aes(x = Extraction, y = richness, group = Extraction, color = Extraction, fill = Extraction)) +
    geom_boxplot(alpha = 0.2,width = 0.5, outlier.shape = NA, show.legend = FALSE)+
    geom_jitter(width = 0.2, size = 1.5, show.legend = FALSE) +
-#  geom_violin(alpha = 0.2, width = 0.3, show.legend = FALSE) +
   scale_color_manual(values = alpha_colors[c(1:group_n)]) +
   scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-#  stat_compare_means(show.legend = FALSE) +
   theme(axis.text.x = element_text(vjust = 0.5, size = 10),
         axis.text.y = element_text(size = 10),
         axis.title = element_text(size = 14, face = "bold"),
@@ -400,16 +363,16 @@ group_n <- alpha_div %>%
         strip.text.x = element_text(size = 12, colour = "black")) +
   guides(colour = guide_legend(override.aes = list(size = 6))) +
   labs(x = "Body site", y = "Richness")
- dev.off()
+ #dev.off()
 
-pdf("figures/neutral_div_body.pdf",width=7, height=6)
+#pdf("figures/neutral_div_body.pdf",width=7, height=6)
 alpha_div %>%
+  left_join(., metadata_row, by = join_by(sample == sample))%>%
   ggplot(aes(x = Extraction, y = neutral, group = Extraction, color = Extraction, fill = Extraction)) +
    geom_boxplot(alpha = 0.2, width = 0.5, outlier.shape = NA, show.legend = FALSE)+
    geom_jitter(width = 0.2, size = 1.5, show.legend = FALSE) +
   scale_color_manual(values = alpha_colors[c(1:group_n)]) +
   scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-#  stat_compare_means(show.legend = FALSE) +
   theme(axis.text.x = element_text(vjust = 0.5, size = 10),
         axis.text.y = element_text(size = 10),
         axis.title = element_text(size = 14, face = "bold"),
@@ -422,16 +385,16 @@ alpha_div %>%
         strip.text.x = element_text(size = 12, colour = "black")) +
   guides(colour = guide_legend(override.aes = list(size = 6))) +
   labs(x = "Body site", y = "Neutral")
-dev.off()
+#dev.off()
 
-pdf("figures/phylo_div_body.pdf",width=7, height=6)
+#pdf("figures/phylo_div_body.pdf",width=7, height=6)
 alpha_div %>%
+  left_join(., metadata_row, by = join_by(sample == sample))%>%
   ggplot(aes(x = Extraction, y = phylogenetic, group = Extraction, color = Extraction, fill = Extraction)) +
    geom_boxplot(alpha = 0.2, width = 0.5, outlier.shape = NA, show.legend = FALSE)+
    geom_jitter(width = 0.2, size = 1.5, show.legend = FALSE) +
   scale_color_manual(values = alpha_colors[c(1:group_n)]) +
   scale_fill_manual(values = paste0(alpha_colors[c(1:group_n)], "50")) +
-  stat_compare_means(show.legend = FALSE) +
   theme(axis.text.x = element_text(vjust = 0.5, size = 10),
         axis.text.y = element_text(size = 10),
         axis.title = element_text(size = 14, face = "bold"),
@@ -444,53 +407,34 @@ alpha_div %>%
         strip.text.x = element_text(size = 12, colour = "black")) +
   guides(colour = guide_legend(override.aes = list(size = 6))) +
   labs(x = "Body site", y = "Phylogenetic")
-dev.off()
+#dev.off()
 ```
 
 ## Mixed models
+```{r}
+set.seed(1411)
+```
 
 ```{r}
-library(lme4)
-library(MuMIn)
+alpha_div_meta <- alpha_div %>%
+  left_join(., metadata_row, by = join_by(sample == sample))
+
 #richness: Negative Binomial
-q0 <- merge(richness, metadata_row, by="sample")
-#q0$DogID=factor(q0$DogID)
-#mean and sd
-means_q0_byextraction <- alpha_div %>% group_by(Extraction) %>% summarise_at(.vars = names(.)[3],.funs = c(mean="mean", sd="sd"))
-as.data.frame(means_q0_byextraction)
-
-##Negative Binomial
-Modelq0GLMMNB <- glmer.nb(richness ~ Extraction+(1|DogID), data = alpha_div)#USE THIS!
-summary(Modelq0GLMMNB)
-r.squaredGLMM(Modelq0GLMMNB)
-
+Modelq0 <- glmer.nb(richness ~ Extraction+(1|DogID), data = alpha_div_meta)
+summary(Modelq0)
+r.squaredGLMM(Modelq0)
 #Plot the model
-library(sjPlot)
-#pdf(paste(projectdirR,"Figures/GLMMNB_all_q0.pdf",sep=""),width=7, height=6)
-plot_model(Modelq0GLMMNB,type="pred",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-#dev.off()
-#type = "pred"=Predicted values (marginal effects) for specific model terms. See ggpredict for details.
+plot_model(Modelq0,type="pred",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
 
 #q1:linear
-library(nlme)
-#write.table(q1,paste("~/Mandy_cats/Results/Data/q1_",codeGeneral,".tsv",sep=""))
-Modelq1 <- lme(fixed = neutral ~ Extraction, data = alpha_div,
+Modelq1 <- lme(fixed = neutral ~ Extraction, data = alpha_div_meta,
                random = ~ 1 | DogID)
-Modelq1_extra <- lme(fixed = neutral ~ Extraction, data = alpha_div,
-                     random = ~ Extraction | DogID)
 summary(Modelq1)
 anova(Modelq1)
-summary(Modelq1_extra)
-
-AIC(Modelq1,Modelq1_extra)# the first model is more appropriate, lower AIC
-r.squaredGLMM(Modelq1)
-#pdf(paste(projectdirR,"Figures/GLMM_all_q1.pdf",sep=""),width=7, height=6)
 plot_model(Modelq1,type="pred",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-#dev.off()
-plot_model(Modelq1,type="re",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
 
-
-Modelq1p <- lme(fixed = phylogenetic ~ Extraction, data = alpha_div,
+#q1 phylogenetic
+Modelq1p <- lme(fixed = phylogenetic ~ Extraction, data = alpha_div_meta,
                random = ~ 1 | DogID)
 summary(Modelq1p)
 anova(Modelq1p)
@@ -510,21 +454,23 @@ beta_q1p <- asv_table%>%
   column_to_rownames(., "asv")%>%
   hillpair(., q = 1, tree = tree)
 
-#save(beta_q0,beta_q1n,beta_q1p, file = "resources/beta_div_FL_filtered.Rdata")
-load("resources/beta_div.Rdata")
+save(beta_q0,beta_q1n,beta_q1p, file = "resources/beta_div_FL_filtered.Rdata")
+```
+
+```{r}
 load("resources/beta_div_FL_filtered.Rdata")
 ```
 
 ```{r betan, comment="", echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
-beta_metric <- beta_q1n$S
+beta_metric <- beta_q0n$S
 
-beta_q1n_nmds <- beta_metric %>%
+beta_q0n_nmds <- beta_metric %>%
   vegan::metaMDS(., trymax = 500, k = 2, verbosity = FALSE) %>%
   vegan::scores() %>%
   as_tibble(., rownames = "sample") %>%
   dplyr::left_join(metadata_row, by = join_by(sample == sample))
 
-group_n <- length(unique(beta_q1n_nmds$Extraction))
+group_n <- length(unique(beta_q0n_nmds$Extraction))
 beta_colors <- c("#e5bd5b", "#6b7398", "#76b183", "#d57d2c", "#2a2d26", "#f9d4cc", "#3c634e", "#ea68c3")
 ```
 
@@ -547,12 +493,11 @@ q1n_nmds <- beta_q1n_nmds %>%
   mutate(x_cen = mean(NMDS1, na.rm = TRUE)) %>%
   mutate(y_cen = mean(NMDS2, na.rm = TRUE)) %>%
   ungroup()
+
 #pdf("figures/beta_body_sites.pdf",width=14, height=9)
 ggplot(q1n_nmds, aes(x = NMDS1, y = NMDS2, color = Extraction)) +
   scale_color_manual(values = beta_colors[c(1:group_n)]) +
-#  scale_shape_manual(values = 1:10) +
   geom_point(size = 2) +
-  #   stat_ellipse(aes(color = beta_q1n_nmds$Groups))+
   geom_segment(aes(x = x_cen, y = y_cen, xend = NMDS1, yend = NMDS2), alpha = 0.9, show.legend = FALSE) +
   theme_classic() +
   theme(
@@ -567,7 +512,6 @@ ggplot(q1n_nmds, aes(x = NMDS1, y = NMDS2, color = Extraction)) +
     legend.position = "right", legend.box = "vertical"
   ) + 
   labs(colour = "Body site")
-#+ geom_text(aes(label = Sample), size=8)
 #dev.off()
 ```
 
@@ -611,7 +555,6 @@ ggplot(q1p_nmds, aes(x = NMDS1, y = NMDS2, color = Extraction)) +
   scale_color_manual(values = beta_colors[c(1:group_n)]) +
   scale_shape_manual(values = 1:10) +
   geom_point(size = 2) +
-  #   stat_ellipse(aes(color = beta_q1n_nmds$Groups))+
   geom_segment(aes(x = x_cen, y = y_cen, xend = NMDS1, yend = NMDS2), alpha = 0.9) +
   theme_classic() +
   theme(
@@ -625,11 +568,9 @@ ggplot(q1p_nmds, aes(x = NMDS1, y = NMDS2, color = Extraction)) +
     legend.title = element_text(size = 14),
     legend.position = "right", legend.box = "vertical"
   )
-#+ geom_text(aes(label = Sample), size=8)
 ```
 
 ***Homogeneity of variance***
-
 ```{r permup, comment="", echo=FALSE, message=FALSE, warning=FALSE}
 ps.disper.neutral <- betadisper(betap_metric, metadata_row$Extraction) 
 permutest(ps.disper.neutral, pairwise = TRUE) 
@@ -645,500 +586,3 @@ adonis2(betap_metric ~ Extraction, data = metarow[labels(beta_metric), ], permut
   knitr::kable(., digits = c(0,3,3,3,3))
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## Body parts
-
-### Filtering and Extracting tables
-
-```{r tables_FS}
-asv_FS <- data.frame(physeq_FL@otu_table)
-tax_FS <- data.frame(physeq_FL@tax_table)
-tree_FS = phy_tree(physeq_FL)
-asv.tree <- force.ultrametric(tree_FS, method = "extend")
-samples_FS <- data.frame(physeq_FL@sam_data)
-samples_FS$Pack=factor(samples_FS$Pack)
-hierarchy.FS <- tibble::rownames_to_column(samples_FS, "Sample")
-hierarchy.FS <- hierarchy.FS[which(hierarchy.FS[,1] %in% colnames(asv_FS)),]
-identical(sort(colnames(asv_FS)),sort(as.character(hierarchy.FS[,1])))
-match_data(asv_FS,tree_FS)
-```
-
-### Phylum summary
-
-```{r summary_FS}
-physeq_FL.phylum <- microbiome::aggregate_taxa(physeq_FL, 'Phylum')
-physeq_FL.phylum.rel <-  microbiome::transform(physeq_FL.phylum, "compositional")
-filtered.pecent.t <- as.data.frame(t(as.matrix(physeq_FL.phylum.rel@otu_table)))
-table.W <- tibble::rownames_to_column(filtered.pecent.t, "Sample")
-sample_type <- hierarchy.FS[,c(1,3,4,10)]
-saliva.fecal <- merge(table.W,sample_type,by="Sample")
-saliva.fecal <- saliva.fecal[,-c(1)]
-means_phylum_by_Extractionall <- saliva.fecal %>% 
-  group_by(Extraction) %>% 
-  summarise_at(.vars = names(.)[1:15],.funs = c(Maximum="max", Minimum="min",mean="mean", sd="sd"))
-means_phylum_by_Extraction <- saliva.fecal %>% 
-  group_by(Extraction) %>% 
-  summarise_at(.vars = names(.)[1:15],.funs = c(mean="mean", sd="sd"))
-means_all <- as.data.frame(means_phylum_by_Extraction)
-means <- as.data.frame(means_phylum_by_Extraction)
-means[,2:16]*100
-```
-
-### Which phyla are different in both sample types
-
-```{r clr_transf,comment="", echo=FALSE}
-physeq_clr <- microbiome::transform(physeq_FL, 'clr')
-```
-
-
-***Phylum***
-```{r phyl_MW, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-physeq_clr_phylum <- microbiome::aggregate_taxa(physeq_clr, 'Phylum')
-sample_metadata <- data.frame(physeq_clr@sam_data)%>%
-  rownames_to_column(., "sample")
-clr_t_phylum <- as.data.frame(t(as.matrix(physeq_clr_phylum@otu_table))) %>%
-  rownames_to_column(., "sample")%>% 
-  left_join(., sample_metadata[c(1,3)], by = join_by(sample == sample))
-significant_phylum <- clr_t_phylum %>%
-    pivot_longer(-c(sample,Extraction), names_to = "Phylum", values_to = "value") %>%
-    group_by(Phylum) %>%
-    summarise(p_value = wilcox.test(value ~ Extraction)$p.value) %>%
-    mutate(p_adjust=p.adjust(p_value, method="BH")) %>%
-    filter(p_adjust < 0.05)
-significant_phylum
-```
-```{r phyl_plot, comment="", echo=FALSE, message=FALSE, warning=FALSE}
-phylum <- as.data.frame(t(as.matrix(physeq_phylum_rel@otu_table)))
-significant_phylum_table <- phylum[, colnames(phylum) %in% significant_phylum$Phylum] %>%
-  rownames_to_column(., "sample")%>%  
-  left_join(., sample_metadata[c(1,4)], by = join_by(sample == sample))%>%
-  select(-sample)
-
-colNames <- names(significant_phylum_table)[1:3]
-for(i in colNames){
-  plt <- ggplot(significant_phylum_table, aes(x=Treatment, y=.data[[i]], color = Treatment)) +
-    geom_boxplot(alpha = 0.2, outlier.shape = NA, width = 0.3, show.legend = FALSE) +
-  geom_jitter(width = 0.1, show.legend = TRUE) +
-  theme_minimal() +
-  theme(
-    axis.line = element_line(size = 0.5, linetype = "solid", colour = "black"),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.border = element_blank())
-print(plt)
-}
-```
-
-
-
-
-
-
-
-```{r phyla_dif_FS}
-sample_type <- hierarchy.FS[,c(1,3)]
-saliva.fecal <- merge(table.W,sample_type,by="Sample")
-saliva.fecal <- saliva.fecal[,-c(1)]
-saliva.fecal.no <- saliva.fecal[,-ncol(saliva.fecal)]
-all.taxa <- colnames(saliva.fecal.no)
-Wilcox_result <- c()
-for (y in all.taxa){
-  res.wilcox <- wilcox.test(saliva.fecal[,y] ~ Extraction, data = saliva.fecal,
-                            exact = FALSE, alternative = "less")
-  Wilcox_result <- rbind(Wilcox_result,c(res.wilcox[[1]],Pvalue=res.wilcox[[3]]))
-}
-rownames(Wilcox_result) <- all.taxa
-Wilcox_result <- as.data.frame(Wilcox_result)
-subset(Wilcox_result, Pvalue <= 0.05)
-```
-
-### Diversity Analysis
-
-#### Species profile
-```{r species_profile_FS}
-species_profile <- div_profile(asv_FS, qvalues=seq(from = 0, to = 3, by = (0.2)),hierarchy=hierarchy.FS[,c(1,3)])
-hilldiv::div_profile_plot(species_profile)
-```
-
-#### Apha diversities
-
-##### Richness
-```{r rich_FS}
-divq0.extract <- div_test(asv_FS,qvalue=0,hierarchy=hierarchy.FS[,c(1,3)])
-divq0_value <- divq0.extract$data
-
-q0 <- merge(divq0_value, hierarchy.FS, by="Sample")
-means_q0_byextraction <- q0 %>% 
-  group_by(Extraction) %>% 
-  summarise_at(.vars = names(.)[3],.funs = c(mean="mean", sd="sd"))
-as.data.frame(means_q0_byextraction)
-```
-
-###### Negative Binomial
-```{r NB_FS}
-Modelq0GLMMNB <- glmer.nb(Value ~ Extraction+(1|DogID), data = q0)#USE THIS!
-summary(Modelq0GLMMNB)
-r.squaredGLMM(Modelq0GLMMNB)
-```
-###### Plot the model
-```{r plotq0_FS}
-plot_model(Modelq0GLMMNB,type="pred",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-```
-
-##### Neutral
-
-```{r neutral_FS}
-divq1.extract <- div_test(asv_FS,qvalue=1,hierarchy=hierarchy.FS[,c(1,3)])
-divq1_value <- divq1.extract$data
-q1 <- merge(divq1_value, hierarchy.FS, by="Sample")
-means_q1_byextractiondog <- q1 %>% 
-  group_by(DogID,Extraction) %>% 
-  summarise_at(.vars = names(.)[3],.funs = c(Maximum="max", Minimum="min",mean="mean", sd="sd"))
-means_q1_byextraction <- q1 %>% 
-  group_by(Extraction) %>% 
-  summarise_at(.vars = names(.)[3],.funs = c(mean="mean", sd="sd"))
-as.data.frame(means_q1_byextraction)
-```
-
-###### Negative Binomial
-```{r lme_FS}
-Modelq1 <- lme(fixed = Value ~ Extraction, data = q1,
-               random = ~ 1 | DogID)
-summary(Modelq1)
-```
-###### Plot the model
-```{r plotq1_FS}
-plot_model(Modelq1,type="pred",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-```
-
-##### Phylogenetic
-
-```{r phylo_FS}
-codeGeneral="FaecalSaliva"
-divq0P.extract <- div_test(asv_FS,qvalue=0,hierarchy=hierarchy.FS[,c(1,3)],tree=asv.tree)
-saveRDS(divq0P.extract,paste(projectdirR,"Data/divq0P.",codeGeneral,".RData",sep=""))
-
-divq1P.extract <- div_test(asv_FS,qvalue=1,hierarchy=hierarchy.FS[,c(1,3)],tree=asv.tree)
-saveRDS(divq1P.extract,paste(projectdirR,"Data/divq1P.",codeGeneral,".RData",sep=""))
-#divq1P.extract <- readRDS(paste(projectdirR,"Data/divq1P.extract.",codeGeneral,".RData",sep=""))
-```
-
-```{r phylo_model_FS}
-divq1P_value <- divq1P.extract$data
-q1P <- merge(divq1P_value, hierarchy.FS, by="Sample")
-means_q1P_byextraction <- q1P %>% 
-  group_by(Extraction) %>% 
-  summarise_at(.vars = names(.)[3],.funs = c(mean="mean", sd="sd"))
-as.data.frame(means_q1P_byextraction)
-Modelq1P <- lme(fixed = Value ~ Extraction, data = q1P,
-                random = ~ 1 | DogID)
-summary(Modelq1P)
-r.squaredGLMM(Modelq1P)
-```
-###### Plot the model
-```{r plotq1P_FS}
-plot_model(Modelq1P,type="pred",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-```
-
-#### Composition
-
-##### Distances
-
-```{r read_pair_dis_FS}
-pairdis.q0.extract <- readRDS(paste(projectdirR,"Data/pairdis.q0.extract.",codeGeneral,".RData",sep=""))
-pairdis.q1.extract <- readRDS(paste(projectdirR,"Data/pairdis.q1.extract.",codeGeneral,".RData",sep=""))
-pairdis.q0P.extract <- readRDS(paste(projectdirR,"Data/pairdis.q0P.extract.",codeGeneral,".RData",sep=""))
-pairdis.q1P.extract <- readRDS(paste(projectdirR,"Data/pairdis.q1P.extract.",codeGeneral,".RData",sep=""))
-```
-
-```{r pair_dis_FS}
-pairdis.q0.extract <- pair_dis(asv_FS,qvalue=0,hierarchy=hierarchy.FS[,c(1,3)])
-saveRDS(pairdis.q0.extract,paste(projectdirR,"Data/pairdis.q0.extract.",codeGeneral,".RData",sep=""))
-pairdis.q1.extract <- pair_dis(asv_FS,qvalue=1,hierarchy=hierarchy.FS[,c(1,3)])
-saveRDS(pairdis.q1.extract,paste(projectdirR,"Data/pairdis.q1.extract.",codeGeneral,".RData",sep=""))
-pairdis.q0P.extract <- pair_dis(asv_FS,qvalue=0,hierarchy=hierarchy.FS[,c(1,3)],tree=asv.tree)
-saveRDS(pairdis.q0P.extract,paste(projectdirR,"Data/pairdis.q0P.extract.",codeGeneral,".RData",sep=""))
-pairdis.q1P.extract <- pair_dis(asv_FS,qvalue=1,hierarchy=hierarchy.FS[,c(1,3)],tree=asv.tree)
-saveRDS(pairdis.q1P.extract,paste(projectdirR,"Data/pairdis.q1P.extract.",codeGeneral,".RData",sep=""))
-```
-
-##### Distances
-```{r dis_FS}
-u0n <- pairdis.q0.extract$L1_UqN
-u0n.dist <- as.dist(u0n)
-u1n <- pairdis.q1.extract$L1_UqN
-u1n.dist <- as.dist(u1n)
-u0Pn <- pairdis.q0P.extract$L1_UqN
-u0Pn.dist <- as.dist(u0Pn)
-u1Pn <- pairdis.q1P.extract$L1_UqN
-u1Pn.dist <- as.dist(u1Pn) 
-```
-
-##### Permanova
-```{r permanova_FS}
-adonis2(u0n.dist ~ sample_data(physeq_FL)$Extraction, strata = sample_data(physeq_FL)$DogID, permutations = 999)
-adonis2(u1n.dist ~ sample_data(physeq_FL)$Extraction, strata = sample_data(physeq_FL)$DogID, permutations = 999)
-adonis2(u0Pn.dist ~ sample_data(physeq_FL)$Extraction, strata = sample_data(physeq_FL)$DogID, permutations = 999)
-adonis2(u1Pn.dist ~ sample_data(physeq_FL)$Extraction, strata = sample_data(physeq_FL)$DogID, permutations = 999)
-```
-
-##### Permanova
-```{r permanovaAll_FS}
-adonis2(u0n.dist ~ sample_data(physeq_FL)$Extraction + 
-         sample_data(physeq_FL)$Pack + sample_data(physeq_FL)$Location + 
-         sample_data(physeq_FL)$Sex + sample_data(physeq_FL)$Age, permutations = 999)
-adonis2(u1n.dist ~ sample_data(physeq_FL)$Extraction + 
-         sample_data(physeq_FL)$Pack + sample_data(physeq_FL)$Location + sample_data(physeq_FL)$Sex +
-         sample_data(physeq_FL)$Age, permutations = 999)
-adonis2(u0Pn.dist ~ sample_data(physeq_FL)$Extraction + sample_data(physeq_FL)$Pack + 
-         sample_data(physeq_FL)$Location + sample_data(physeq_FL)$Sex + 
-         sample_data(physeq_FL)$Age, permutations = 999)
-adonis2(u1Pn.dist ~ sample_data(physeq_FL)$Extraction + sample_data(physeq_FL)$Pack + 
-         sample_data(physeq_FL)$Location + sample_data(physeq_FL)$Sex + 
-         sample_data(physeq_FL)$Age, permutations = 999)
-```
-
-##### Calculate NMDS
-```{r permanova_FS}
-nmds <- metaMDS(as.dist(pairdis.q1P.extract$L1_UqN),k=2,trymax=100)
-NMDS=data.frame(x=nmds$point[,1],y=nmds$point[,2])
-NMDS <- merge(NMDS,samples_FS,by="row.names")
-head(NMDS)
-```
-
-##### Centroids
-```{r centroids_FS}
-NMDS.centroids=aggregate(NMDS[,c(2:3)],by=list(NMDS$Extraction),FUN=mean)
-colnames(NMDS.centroids) <- c("Extraction","x_cen","y_cen")
-NMDS=merge(NMDS,NMDS.centroids,by="Extraction")
-#NMDS.centroids$Label <- c('Cat_1', 'Cat_2', 'Cat_3', 'Cat_4', 'Cat_5', 
-#                          'Cat_6', 'Cat_7')
-```
-
-##### Plots
-```{r plots_FS}
-ggplot(NMDS, aes(x=x,y=y,colour=Extraction)) +
-  geom_point(size=2) +
-  geom_point(aes(x=x_cen,y=y_cen),alpha=0) +
-  scale_color_brewer(palette="Dark2") +
-  geom_segment(aes(x=x_cen, y=y_cen, xend=x, yend=y), alpha=0.3) +
-  theme_light() +
-  theme(axis.line = element_line(colour = "grey"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.border = element_blank(),
-        panel.background = element_blank(),
-        axis.title=element_blank(),
-        legend.text=element_text(size=10))
-```
-
-# Filtering followers and leaders
-
-```{r FL}
-physeq_FL <- subset_samples(physeq_FL, Working_status %in% c("Follower", "Lead"))
-physeq_FL <- prune_taxa(taxa_sums(physeq_FL)>0, physeq_FL)
-```
-
-# Filtering saliva samples
-
-```{r saliva}
-physeq_saliva <- subset_samples(physeq_FL, Extraction == "Saliva")
-physeq_saliva <- prune_taxa(taxa_sums(physeq_saliva)>0, physeq_saliva)
-saliva.table <- data.frame(physeq_saliva@otu_table)
-saliva.metatable <- data.frame(physeq_saliva@sam_data)
-tree_saliva = phy_tree(physeq_saliva)
-saliva.metatable$Pack=factor(saliva.metatable$Pack)
-hierarchy.saliva <- tibble::rownames_to_column(saliva.metatable, "Samples")
-hierarchy.saliva <- hierarchy.saliva[which(hierarchy.saliva[,1] %in% colnames(saliva.table)),]
-identical(sort(colnames(saliva.table)),sort(as.character(hierarchy.saliva[,1])))
-match_data(saliva.table,tree_saliva)
-```
-
-## Explore the number of samples 
-```{r samples_saliva}
-table(meta(physeq_saliva)$Sex, meta(physeq_saliva)$Location)
-table(meta(physeq_saliva)$Working_status, meta(physeq_saliva)$Location)
-```
-
-
-```{r barplot_color}
-gg_color_hue_order <- function(n) {
-  hues = seq(15, 375, length = n + 1)
-  hcl(h = hues, l = 65, c = 100)[1:n]
-}
-```
-
-## Phylum
-```{r phylum_saliva}
-physeq_saliva.phylum <- microbiome::aggregate_taxa(physeq_saliva, 'Phylum')
-physeq_saliva.phylum.rel <-  microbiome::transform(physeq_saliva.phylum, "compositional")
-saliva.rel <- physeq_saliva.phylum.rel@otu_table*100
-means.saliva.rel <- as.data.frame(rowMeans(saliva.rel))
-sd.saliva.rel <- as.data.frame(rowSds(saliva.rel, useNames = TRUE))
-summary.phylum.saliva <- merge(means.saliva.rel, sd.saliva.rel, by="row.names")
-colnames(summary.phylum.saliva) <- c("Phylum","mean", "sd")
-summary.phylum.saliva[order(-summary.phylum.saliva$mean),]
-```
-
-```{r phylum_saliva_plot}
-top_phylum <- aggregate_top_taxa2(physeq_saliva.phylum.rel, top = 10, "Phylum")
-dat.dataframe.top_phylum = psmelt(top_phylum)
-ggplot(dat.dataframe.top_phylum, aes(x=Sample, y=Abundance, fill=OTU))+ 
-  theme_light() + 
-  geom_bar(stat="identity", position="stack") + 
-  facet_grid(~Location, scale="free") + 
-  theme(strip.text.x = element_text(size = 12, color="black"),
-        panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        strip.background = element_rect(colour=NA, fill=NA),
-        panel.border = element_rect(colour = "black", fill = NA),
-        legend.text=element_text(size=6),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
-        axis.text=element_text(size=6), axis.title=element_text(size=10,face="bold")) +
-        scale_fill_brewer(palette = "Paired")
-```
-
-
-## Order
-```{r order_saliva}
-physeq_saliva.order <- microbiome::aggregate_taxa(physeq_saliva, 'Order')
-physeq_saliva.order.rel <-  microbiome::transform(physeq_saliva.order, "compositional")
-saliva.order.rel <- physeq_saliva.order.rel@otu_table*100
-means.saliva.order.rel <- as.data.frame(rowMeans(saliva.order.rel))
-sd.saliva.order.rel <- as.data.frame(rowSds(saliva.order.rel, useNames = TRUE))
-summary.order.saliva <- merge(means.saliva.order.rel, sd.saliva.order.rel, by="row.names")
-colnames(summary.order.saliva) <- c("order","mean", "sd")
-percentage.saliva.order.sort <- summary.order.saliva[order(-summary.order.saliva$mean),]
-percentage.saliva.order.sort[1-10,]
-```
-
-## Family
-```{r family_saliva}
-physeq_saliva.family <- microbiome::aggregate_taxa(physeq_saliva, 'Family')
-physeq_saliva.family.rel <-  microbiome::transform(physeq_saliva.family, "compositional")
-saliva.family.rel <- physeq_saliva.family.rel@otu_table*100
-means.saliva.family.rel <- as.data.frame(rowMeans(saliva.family.rel))
-sd.saliva.family.rel <- as.data.frame(rowSds(saliva.family.rel, useNames = TRUE))
-summary.family.saliva <- merge(means.saliva.family.rel, sd.saliva.family.rel, by="row.names")
-colnames(summary.family.saliva) <- c("family","mean", "sd")
-percentage.saliva.family.sort <- summary.family.saliva[order(-summary.family.saliva$mean),]
-percentage.saliva.family.sort[1-10,]
-```
-
-
-## Genus
-```{r genus_saliva}
-physeq_saliva.genus <- microbiome::aggregate_taxa(physeq_saliva, 'Genus')
-physeq_saliva.genus.rel <-  microbiome::transform(physeq_saliva.genus, "compositional")
-saliva.genus.rel <- physeq_saliva.genus.rel@otu_table*100
-means.saliva.genus.rel <- as.data.frame(rowMeans(saliva.genus.rel))
-sd.saliva.genus.rel <- as.data.frame(rowSds(saliva.genus.rel, useNames = TRUE))
-summary.genus.saliva <- merge(means.saliva.genus.rel, sd.saliva.genus.rel, by="row.names")
-colnames(summary.genus.saliva) <- c("family","mean", "sd")
-percentage.saliva.genus.sort <- summary.genus.saliva[order(-summary.genus.saliva$mean),]
-percentage.saliva.genus.sort[1-10,]
-```
-
-```{r genus_saliva_plot}
-top_genus <- aggregate_top_taxa2(physeq_saliva.genus.rel, top = 10, "Phylum")
-dat.dataframe.top_genus = psmelt(top_genus)
-a <- ifelse(dat.dataframe.top_genus$Working_status == "Lead", "red", "blue")
-ggplot(dat.dataframe.top_genus, aes(x=DogID, y=Abundance, fill=OTU))+ 
-  theme_light() + 
-  geom_bar(stat="identity", position="stack") + 
-  facet_grid(~Location, scale="free") + 
-  theme(strip.text.x = element_text(size = 12, color="black"),panel.grid.major = element_blank(), panel.grid.minor = element_blank(),strip.background = element_rect(colour=NA, fill=NA),
-        panel.border = element_rect(colour = "black", fill = NA), legend.text=element_text(size=6),axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
-        axis.text=element_text(size=6), axis.title=element_text(size=10,face="bold")) +
-        scale_fill_brewer(palette = "Paired")
-```
-
-```{r barplot_color}
-gg_color_hue_order <- function(n) {
-  hues = seq(15, 375, length = n + 1)
-  hcl(h = hues, l = 65, c = 100)[1:n]
-}
-```
-
-
-
-
-## Mixed models
-
-```{r}
-library(lme4)
-library(MuMIn)
-#richness: Negative Binomial
-q0 <- merge(richness, metadata_row, by="sample")
-#q0$DogID=factor(q0$DogID)
-#mean and sd
-means_q0_byextraction <- alpha_div %>% group_by(Extraction) %>% summarise_at(.vars = names(.)[3],.funs = c(mean="mean", sd="sd"))
-as.data.frame(means_q0_byextraction)
-
-##Negative Binomial
-Modelq0GLMMNB <- glmer.nb(richness ~ Extraction+(1|DogID), data = alpha_div)#USE THIS!
-summary(Modelq0GLMMNB)
-r.squaredGLMM(Modelq0GLMMNB)
-
-#Plot the model
-library(sjPlot)
-pdf(paste(projectdirR,"Figures/GLMMNB_all_q0.pdf",sep=""),width=7, height=6)
-plot_model(Modelq0GLMMNB,type="pred",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-dev.off()
-#type = "pred"=Predicted values (marginal effects) for specific model terms. See ggpredict for details.
-
-#q1:linear
-library(nlme)
-#write.table(q1,paste("~/Mandy_cats/Results/Data/q1_",codeGeneral,".tsv",sep=""))
-Modelq1 <- lme(fixed = neutral ~ Extraction, data = alpha_div,
-               random = ~ 1 | DogID)
-Modelq1_extra <- lme(fixed = neutral ~ Extraction, data = alpha_div,
-                     random = ~ Extraction | DogID)
-summary(Modelq1)
-anova(Modelq1)
-summary(Modelq1_extra)
-
-AIC(Modelq1,Modelq1_extra)# the first model is more appropriate, lower AIC
-r.squaredGLMM(Modelq1)
-pdf(paste(projectdirR,"Figures/GLMM_all_q1.pdf",sep=""),width=7, height=6)
-plot_model(Modelq1,type="pred",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-dev.off()
-plot_model(Modelq1,type="re",terms = "Extraction", show.data = TRUE,jitter=0.2, connect.lines = TRUE)+theme_bw()
-
-```
-
-
-
-
-
-
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
